@@ -6,7 +6,7 @@ Portainer remains on the existing homelab mini PC.
 
 Address:
 
-`https://192.0.2.20:9443`
+`the configured Portainer management address`
 
 The AI server does not run a second Portainer instance.
 
@@ -26,7 +26,7 @@ Port:
 
 The existing Portainer connects to:
 
-`tcp://192.0.2.10:9001`
+`the configured Portainer Agent endpoint`
 
 ## Firewall
 
