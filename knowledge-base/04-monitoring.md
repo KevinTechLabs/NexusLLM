@@ -3,11 +3,11 @@
 Uptime Kuma:
 - Host: `192.0.2.20`
 - Port: `3001`
-- URL: `http://192.0.2.20:3001`
+- URL: `the configured Uptime Kuma address`
 
 Monitors:
-- Open WebUI: `http://192.0.2.10:3000`
-- Ollama: `http://192.0.2.10:11434/api/tags`
+- Open WebUI: `the configured Open WebUI endpoint`
+- Ollama: `the configured Ollama health endpoint`
 - Nexus-Ai: ping `192.0.2.10`
 
 Notifications use a private Discord server and `#alerts`.
