@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply Portainer Agent Docker firewall rules
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/portainer-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=docker.service
