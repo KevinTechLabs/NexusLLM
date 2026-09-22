@@ -6,7 +6,7 @@ Common checks:
 sudo docker ps
 sudo docker exec ollama ollama list
 sudo docker exec ollama nvidia-smi
-curl http://127.0.0.1:11434/api/tags
+curl <OLLAMA_API_ENDPOINT>/api/tags
 sudo ufw status verbose
 tailscale status
 ```
