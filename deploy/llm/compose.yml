@@ -41,7 +41,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
-      - EXTERNAL_PWA_MANIFEST_URL=http://192.0.2.10:8081/manifest.webmanifest
+      - EXTERNAL_PWA_MANIFEST_URL=the configured PWA manifest endpoint
 
     volumes:
       - open_webui_data:/app/backend/data
