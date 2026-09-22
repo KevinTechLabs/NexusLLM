@@ -29,7 +29,7 @@ sudo docker exec ollama nvidia-smi
 API test:
 
 ```bash
-curl http://127.0.0.1:11434/api/tags
+curl <OLLAMA_API_ENDPOINT>/api/tags
 ```
 
 ## Open WebUI
