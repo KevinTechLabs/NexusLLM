@@ -24,7 +24,7 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - a monthly limit (and an optional daily one)
 
   The header shows spend. Turn Opus off with `/opus off` or the Opus chip, and its agents fall back to the local models. The server enforces this, so it costs $0 while off.
-- **GitHub:** pick a repo once with `/repo NexusLLM`, then just type `/update what to change`. Builder makes small, targeted edits (even inside big files), Reviewer checks them, and you get a diff → **Open pull request** → **Merge now**, all from the console. Nothing is written until you click.
+- **GitHub:** connected automatically at startup (the header shows a GitHub chip, and warns 14 days before the token expires). Just ask in plain words: *"read my NexusLLM repo"*, *"add a FAQ to my NexusLLM repo"*, *"show my repos"*. The repo you last used is remembered, so *"add a section about X to my repo"* works too. Slash commands still work: `/repo NexusLLM`, then `/update what to change`. Builder makes small, targeted edits (even inside big files), Reviewer checks them, and you get a diff → **Open pull request** → **Merge now**, all from the console. Nothing is written until you click.
 - **You're the only contributor:** every commit is authored by you with your private GitHub email, and any "Co-authored-by" or AI credit line is stripped from commit messages and pull requests automatically.
 - **Projects:** `/project new name`, **Save** buttons on code blocks (or `/save`), `/files`, and `/publish repo`. An empty repo gets an initial commit; a repo with code gets a pull request.
 - **Login screen:** themed, with logout. The password is checked server-side with a timing-safe comparison.
@@ -93,6 +93,9 @@ sudo systemctl restart nexus-hq
 Everyday use:
 
 ```text
+read my NexusLLM repo                            review it (plain English works)
+add a FAQ to my NexusLLM repo                    write the change and show the diff
+show my repos                                    list them
 /repo NexusLLM                                   pick the repo once (remembered)
 /update in README.md under AI Models, add ...    write the change and show the diff
 → Open pull request → Merge now                  two taps, no GitHub site needed

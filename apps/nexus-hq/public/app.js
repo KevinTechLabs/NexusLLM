@@ -144,7 +144,7 @@ function renderChrome() {
   ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
   $("#models").innerHTML = D.models.map((m) =>
     `<button class="mchip ${m.ready && !m.overBudget && m.enabled !== false ? "" : "off"}" data-open="model:${m.id}" title="${esc(m.ready && !m.overBudget && m.enabled !== false ? "Ready" : m.note)}"><span class="d"></span>${esc(m.label)} <span class="m">${m.enabled === false ? "off" : esc(m.model)}</span></button>`
-  ).join("") + (D.spend && D.models.some((m) => m.budgeted && m.enabled !== false) ? spendChip(D.spend) : "");
+  ).join("") + (D.spend && D.models.some((m) => m.budgeted && m.enabled !== false) ? spendChip(D.spend) : "") + ghChip(D.github);
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
 }
 
@@ -154,6 +154,13 @@ function spendChip(sp) {
   if (sp.daily != null) parts.push(`today <b>$${sp.today.toFixed(2)}</b> <span class="m">/ $${sp.daily.toFixed(2)}</span>`);
   if (!parts.length) parts.push(`today <b>$${sp.today.toFixed(2)}</b> <span class="m">(no limit)</span>`);
   return `<span class="mchip spend ${spendOver(sp) ? "off" : ""}" title="What Opus has cost. At the limit it stops and local models stand in until it resets.">Opus ${parts.join(" · ")}</span>`;
+}
+function ghChip(g) {
+  if (!g?.enabled) return "";
+  const days = g.expires ? Math.ceil((new Date(g.expires) - Date.now()) / 864e5) : null;
+  const bad = !!g.error || (days != null && days <= 0), warn = days != null && days <= 14;
+  const tip = g.error ? `GitHub problem: ${g.error}. Make a new token and put it in .env.` : warn ? `Your GitHub token expires in ${days} day(s). Make a new one and put it in .env.` : "GitHub is connected. Just ask, e.g. \"read my NexusLLM repo\" or \"add a FAQ to my NexusLLM repo\".";
+  return `<span class="mchip ${bad ? "off" : ""}" title="${esc(tip)}"><span class="d" style="${warn && !bad ? "background:#f5b84c" : ""}"></span>GitHub <span class="m">${esc(g.login || "connecting…")}${warn && !bad ? ` · token ${days}d left` : ""}${bad ? " · reconnect" : ""}</span></span>`;
 }
 function spendOver(sp) { return (sp.monthly != null && sp.month >= sp.monthly) || (sp.daily != null && sp.today >= sp.daily); }
 async function toggleModel(id, want) {
@@ -1195,6 +1202,7 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 <b>@opus</b> question   ask Claude Opus directly (a few cents; counts toward your limit)
 <b>/opus off</b>  <b>/opus on</b>   switch Opus off (local models take over) or back on
 <b>/web</b> question    search the web first, whatever the web setting
+GitHub: just ask, e.g. <b>read my NexusLLM repo</b> · <b>add a FAQ to my NexusLLM repo</b> · <b>show my repos</b>
 <b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
 <b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
 <b>/review</b>           review the current repo (or <b>/review</b> name)
@@ -1229,6 +1237,17 @@ async function dispatch(raw) {
   if (/^\/(github|repos|repo|review|update|project|files|save|publish)\b/.test(q)) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
     return saveSession();
+  }
+  if (!/^[\/@]/.test(q) && ghEnabled()) {
+    const gi = await ghIntent(q);
+    if (gi) {
+      try {
+        if (gi.kind === "ask") conLine(gi.msg, "sys");
+        else if (gi.kind === "list") await ghCommand("/repos");
+        else { store.set("hq.repo", gi.repo); conLine(`GitHub → <b>${esc(gi.repo)}</b> · ${gi.kind === "read" ? "reading" : "preparing a change"}`, "sys"); await (gi.kind === "read" ? ghReview(gi.repo, q) : ghUpdate(gi.repo, q)); }
+      } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
+      return saveSession();
+    }
   }
   if (q === "/agents") return conLine(D.agents.map((a) => `${agentTag(a)} <span class="dim">@${esc(a.id)}</span>`).join("<br>"), "sys");
   if (session.title === "New chat") { session.title = q.replace(/\s+/g, " ").slice(0, 70); $("#conTitle").textContent = session.title; }
@@ -1498,9 +1517,29 @@ let ghRepoList = null;
 const curRepo = () => store.get("hq.repo", "");
 async function knownRepo(name) {
   if (!name) return null;
-  if (!ghRepoList) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = []; } }
+  if (!ghRepoList?.length) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = null; } }
   const n = name.toLowerCase().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
-  return ghRepoList.find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
+  return (ghRepoList || []).find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
+}
+
+// Plain-English GitHub requests: "read my NexusLLM repo", "add a FAQ to my NexusLLM repo", "show my repos".
+// Only kicks in when you clearly mean YOUR repos, so "how do I create a git repo?" still goes to the agents.
+async function ghIntent(q) {
+  const t = q.toLowerCase();
+  const mine = /\b(my|our)\s+(github|repos?|repositor(y|ies))\b|\b(this|the|current|that)\s+repo\b|\bmy\s+[\w.-]+\s+repo\b|\bon (my )?github\b/.test(t);
+  if (!ghRepoList?.length) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = null; } }
+  const named = (ghRepoList || []).filter((r) => r.name.length >= 3 && new RegExp(`(^|[^\\w.-])${r.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w.-]|$)`).test(t))
+    .sort((a, b) => b.name.length - a.name.length)[0]?.name;
+  if (!mine && !named) return null;
+  const readRe = /\b(read|review|look (at|over|through)|check|summari[sz]e|explain|go (over|through)|analy[sz]e|audit|scan|tell me about|what('s| is) in)\b/;
+  const addRe = /\b(add|update|change|edit|fix|put|write|insert|remove|delete|rename|replace|create|append|include|make|improve|rewrite|document)\b/;
+  const ri = t.search(readRe), ai = t.search(addRe);
+  const kind = ri === -1 && ai === -1 ? (named ? "read" : null) : ai === -1 ? "read" : ri === -1 ? "add" : ri < ai ? "read" : "add";
+  if (!named && /\b(repos|repositories)\b/.test(t) && (kind === "read" || /\b(list|show|which|what are|see)\b/.test(t) || !kind)) return { kind: "list" };
+  if (!kind) return null;
+  const repo = named || curRepo();
+  if (!repo) return { kind: "ask", msg: `Which repo? Say it by name, e.g. <b>${kind === "read" ? "read my NexusLLM repo" : "add a FAQ to my NexusLLM repo"}</b>. Your repos: ${(ghRepoList || []).slice(0, 12).map((r) => `<b>${esc(r.name)}</b>`).join(", ") || "none found"}.` };
+  return { kind, repo };
 }
 
 async function ghCommand(q) {
@@ -1542,7 +1581,7 @@ async function ghCommand(q) {
   }
   if (cmd === "/github") {
     const s = await jfetch("/api/github/status");
-    return conLine(`Connected to GitHub as <b>${esc(s.login)}</b>. Pick a repo with <b>/repo name</b> (see <b>/repos</b>), then type <b>/update what to change</b>. Also: <b>/review</b>, <b>/project new name</b>, <b>/publish repo-name</b>.`, "sys ok");
+    return conLine(`Connected to GitHub as <b>${esc(s.login)}</b>. Just ask in plain words, e.g. <b>read my NexusLLM repo</b> or <b>add a FAQ to my NexusLLM repo</b>.`, "sys ok");
   }
   if (cmd === "/repos") {
     const { repos } = await jfetch("/api/github/repos");

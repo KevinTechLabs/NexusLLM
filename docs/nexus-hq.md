@@ -37,7 +37,7 @@ iPhone (Home Screen app) → Tailscale → Nexus-Ai:3100 → Nexus HQ (Node)
 
 ## GitHub workflow
 
-1. `/repo NexusLLM` once. Nexus HQ remembers it.
+1. Just ask: "read my NexusLLM repo" or "add a FAQ to my NexusLLM repo" (or `/repo NexusLLM` once, then `/update ...`). Nexus HQ remembers the repo.
 2. `/update <what to change>`. Builder writes FIND/REPLACE edits, Reviewer checks them, and a diff card appears.
 3. **Open pull request**, then **Merge now** (squash merge; the temporary `nexus-hq/...` branch is deleted).
 

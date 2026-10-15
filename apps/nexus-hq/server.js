@@ -254,6 +254,8 @@ async function status() {
 const { makeClient } = require("./lib/github");
 const GITHUB_TOKEN = env("GITHUB_TOKEN", "");
 const github = GITHUB_TOKEN ? makeClient(GITHUB_TOKEN) : null;
+// Connect to GitHub as soon as the server starts, and re-check every 6 hours (catches an expired token).
+if (github) { const ping = () => github.check().catch((e) => { github.state.error = e.message; }); ping(); setInterval(ping, 6 * 3600e3).unref(); }
 const PROJECTS_DIR = path.join(__dirname, "data", "projects");
 const slugify = (n) => String(n || "").toLowerCase().trim().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 60);
 function projectDir(name) { const s = slugify(name); return s ? path.join(PROJECTS_DIR, s) : null; }
@@ -537,7 +539,7 @@ async function handle(req, res) {
       return res.end(JSON.stringify({ error: `agents.json could not be read: ${e.message}` }));
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: { enabled: !!github }, spend: spendInfo() }));
+    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, spend: spendInfo() }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/models") {

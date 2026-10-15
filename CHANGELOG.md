@@ -2,6 +2,8 @@
 
 ## 2026-10-14
 
+- Nexus HQ connects to GitHub automatically at startup, shows a GitHub status chip (with a token-expiry warning), and understands plain requests like "read my NexusLLM repo" and "add a FAQ to my NexusLLM repo".
+
 - Nexus HQ web answers no longer show inline citation numbers; sources stay in the Sources list under each answer.
 - Nexus HQ GitHub workflow: `/repo` remembers the repo, `/update` makes targeted FIND/REPLACE edits (safe inside large files), and the change card has a one-tap **Merge now**.
 - Nexus HQ commits are always authored by the repo owner (private noreply email) and AI co-author lines are stripped automatically.

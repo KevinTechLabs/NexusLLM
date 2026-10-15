@@ -34,6 +34,10 @@ function makeClient(token) {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(20000),
     });
+    const exp = r.headers.get("github-authentication-token-expiration");
+    if (exp) state.expires = new Date(exp.replace(" UTC", "Z").replace(" ", "T")).toISOString();
+    if (r.status === 401) state.error = "token rejected (expired or revoked)";
+    else if (r.ok) state.error = null;
     if (accept && accept.includes("raw")) {
       if (!r.ok) throw Object.assign(new Error(`GitHub ${r.status} reading file`), { status: r.status });
       return r.text();
@@ -48,7 +52,9 @@ function makeClient(token) {
   }
 
   let me = null;
-  async function user() { return (me ||= await gh("GET", "/user")); }
+  const state = { login: null, expires: null, error: null };
+  async function user() { me ||= await gh("GET", "/user"); state.login = me.login; return me; }
+  async function check() { me = null; return user(); }
   // Every commit Nexus HQ makes is authored by you, with your private GitHub email,
   // so GitHub's email-privacy check passes and nobody else is ever credited.
   async function ident() {
@@ -188,7 +194,7 @@ function makeClient(token) {
     return { merged: !!m.merged, sha: m.sha, url: pr.html_url };
   }
 
-  return { user, repos, info, tree, snapshot, openPR, publish, file, merge, full };
+  return { user, repos, info, tree, snapshot, openPR, publish, file, merge, full, state, check };
 }
 
 module.exports = { makeClient, clean };
