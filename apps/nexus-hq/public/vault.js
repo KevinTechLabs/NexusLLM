@@ -92,7 +92,7 @@ function vaultMemory() {
   const m = V.data?.memory || [];
   $("#vMem").innerHTML = `<div class="vm-head"><span class="kicker">// memory</span><b>Things I remember</b><span class="dim">every agent sees these · stored in <button class="linkbtn" data-note="Memory.md">Memory.md</button></span></div>
     <form class="vm-add" id="vmAdd"><input id="vmInput" placeholder="remember that…" maxlength="300"><button class="btn primary" style="--c:var(--vault)">Add</button></form>
-    <ol class="vm-list">${m.map((x) => `<li><span>${esc(x.text)}</span><button data-vforget="${esc(x.id)}" aria-label="Forget">✕</button></li>`).join("") || `<li class="dim">Nothing yet. Add a fact above, or say <b>remember that…</b> in the console.</li>`}</ol>`;
+    <ol class="vm-list">${m.map((x) => `<li><span>${esc(x.text)}</span><button data-vforget="${esc(x.id)}" aria-label="Forget">✕</button></li>`).join("") || `<li class="dim"><span>Nothing yet. Add a fact above, or say <b>remember that…</b> in the console.</span></li>`}</ol>`;
 }
 
 function vaultReaderEmpty() {
