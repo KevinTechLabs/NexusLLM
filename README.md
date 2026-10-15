@@ -248,6 +248,77 @@ tailscale ip -4
 
 ---
 
+# 🛠️ Nexus HQ Troubleshooting
+
+This section provides common troubleshooting steps for the Nexus AI server from the perspective of a system administrator ("Nexus HQ").
+
+## General Checks
+
+```bash
+hostname
+ip addr
+nvidia-smi
+sudo docker ps
+sudo docker stats --no-stream
+sudo ufw status verbose
+tailscale status
+```
+
+## Ollama Issues
+
+Check model availability and health:
+
+```bash
+sudo docker exec ollama ollama list
+sudo docker exec ollama nvidia-smi
+curl http://127.0.0.1:11434/api/tags
+```
+
+If models don't load or are missing:
+- Ensure `ollama_data` volume has correct permissions.
+- Verify GPU visibility with `nvidia-smi`.
+- Check Docker logs for Ollama container.
+
+## Open WebUI Issues
+
+Check service status and logs:
+
+```bash
+sudo docker ps --filter name=open-webui
+sudo docker logs --tail 100 open-webui
+```
+
+If the UI is unresponsive:
+- Confirm `nexus-proxy` is running.
+- Check Docker network connectivity between containers.
+- Ensure `open_webui_data` volume isn't corrupted.
+
+## Connectivity
+
+If remote access fails:
+
+```bash
+tailscale status
+curl http://192.0.2.10:3000
+```
+
+Check UFW rules and Tailscale IP assignment.
+
+## Docker Compose
+
+Validate configuration before applying:
+
+```bash
+sudo docker compose config
+```
+
+Ensure all services are up and running:
+```bash
+sudo docker compose ps
+```
+
+---
+
 # 📁 Repository Structure
 
 ```text
