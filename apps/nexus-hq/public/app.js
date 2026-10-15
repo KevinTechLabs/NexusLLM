@@ -541,6 +541,8 @@ function systemFor(agent, task) {
   const house = [st.all, agent.dept === "code" ? st.code : st.chat].filter(Boolean).join("\n\n");
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   let s = `Today's date is ${today}.\n\n` + (house ? house + "\n\n" : "") + (agent.prompt || "");
+  const mem = (D.memory || []).map((m) => `- ${m.text}`).join("\n");
+  if (mem) s += `\n\nThings the user has asked you to remember (use them whenever relevant; don't recite them unprompted):\n${mem}`;
   if (task) {
     s += `\n\nCurrent task: ${task.name}.`;
     if (task.sop?.length) s += `\nFollow this procedure:\n${task.sop.map((x, i) => `${i + 1}. ${x}`).join("\n")}`;
@@ -1203,6 +1205,7 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 <b>/opus off</b>  <b>/opus on</b>   switch Opus off (local models take over) or back on
 <b>/web</b> question    search the web first, whatever the web setting
 GitHub: just ask, e.g. <b>read my NexusLLM repo</b> · <b>add a FAQ to my NexusLLM repo</b> · <b>show my repos</b>
+Memory: <b>remember that</b> ... · <b>what do you remember</b> · <b>forget</b> 2 (or forget the one about ...)
 <b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
 <b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
 <b>/review</b>           review the current repo (or <b>/review</b> name)
@@ -1238,13 +1241,15 @@ async function dispatch(raw) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
     return saveSession();
   }
+  const memCmd = await memoryCommand(q);
+  if (memCmd) return saveSession();
   if (!/^[\/@]/.test(q) && ghEnabled()) {
     const gi = await ghIntent(q);
     if (gi) {
       try {
         if (gi.kind === "ask") conLine(gi.msg, "sys");
         else if (gi.kind === "list") await ghCommand("/repos");
-        else { store.set("hq.repo", gi.repo); conLine(`GitHub → <b>${esc(gi.repo)}</b> · ${gi.kind === "read" ? "reading" : "preparing a change"}`, "sys"); await (gi.kind === "read" ? ghReview(gi.repo, q) : ghUpdate(gi.repo, q)); }
+        else { store.set("hq.repo", gi.repo); session.repo = gi.repo; conLine(`GitHub → <b>${esc(gi.repo)}</b> · ${gi.kind === "read" ? "reading" : "preparing a change"}`, "sys"); await (gi.kind === "read" ? ghReview(gi.repo, q) : ghUpdate(gi.repo, q)); }
       } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
       return saveSession();
     }
@@ -1476,7 +1481,8 @@ function parseFileBlocks(text) {
     let body = m[2];
     const fence = body.match(/^```[^\n]*\n([\s\S]*?)\n```\s*$/); // tolerate a fenced block inside
     if (fence) body = fence[1];
-    out.push({ path: m[1].trim(), content: body.replace(/\s+$/, "") + "\n" });
+    body = body.split("\n").filter((l) => !/^#####\s+(BEGIN|END)\s/.test(l)).join("\n");
+    out.push({ path: m[1].trim().replace(/\s+\(.*\)$/, ""), content: body.replace(/\s+$/, "") + "\n" });
   }
   return out;
 }
@@ -1505,6 +1511,21 @@ function applyEdits(text, pairs) {
     while (fl.length && !fl[fl.length - 1]) fl.pop();
     const hits = [];
     for (let i = 0; i + fl.length <= lines.length; i++) if (fl.every((l, k) => lines[i + k].trim() === l)) hits.push(i);
+    if (!hits.length) {
+      // Model noise: drop FIND lines that don't exist anywhere in the file, then try once more
+      const set = new Set(lines.map((l) => l.trim()));
+      const kept = fl.filter((l) => !l || set.has(l));
+      while (kept.length && !kept[kept.length - 1]) kept.pop();
+      while (kept.length && !kept[0]) kept.shift();
+      if (kept.length && kept.length < fl.length) {
+        for (let i = 0; i + kept.length <= lines.length; i++) if (kept.every((l, k) => lines[i + k].trim() === l)) hits.push(i);
+        if (hits.length === 1) {
+          const junk = new Set(fl.filter((l) => l && !set.has(l)));
+          const rep = replace.split("\n").filter((l) => !junk.has(l.trim()) || set.has(l.trim()));
+          lines.splice(hits[0], kept.length, ...rep); cur = lines.join("\n"); continue;
+        }
+      }
+    }
     if (hits.length !== 1) return { error: hits.length ? `"${fl[0].slice(0, 50)}" appears ${hits.length} times` : `couldn't find "${fl[0].slice(0, 50)}"` };
     lines.splice(hits[0], fl.length, ...replace.split("\n"));
     cur = lines.join("\n");
@@ -1522,6 +1543,39 @@ async function knownRepo(name) {
   return (ghRepoList || []).find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
 }
 
+// ----- long-term memory -----
+// "remember that my main repo is NexusLLM", "what do you remember", "forget the one about X", /remember, /memory, /forget
+async function memoryCommand(q) {
+  let m;
+  const show = async () => {
+    const { items } = await jfetch("/api/memory"); D.memory = items;
+    conLine(items.length ? `<b>What I remember</b> (every agent sees this):<br>${items.map((x, i) => `${i + 1}. ${esc(x.text)} <button class="linkbtn" data-forget="${esc(x.id)}">forget</button>`).join("<br>")}` : "I'm not remembering anything yet. Say <b>remember that ...</b> to add something.", "sys");
+  };
+  try {
+    if ((m = q.match(/^(?:\/remember\s+|(?:please\s+)?(?:can you\s+)?remember\s+(?:that\s+)?)([\s\S]{3,})$/i))) {
+      const text = m[1].replace(/[.?!]+$/, "").trim();
+      const r = await jfetch("/api/memory", { method: "POST", body: JSON.stringify({ text }) });
+      D.memory = r.items;
+      conLine(`🧠 Got it. I'll remember: <b>${esc(r.item.text)}</b> <span class="dim">(every agent, every chat · /memory to see all)</span>`, "sys ok");
+      return true;
+    }
+    if (/^(\/memory|what do you remember\??|show (me )?(your )?memory|what('s| is) in (your )?memory\??)$/i.test(q)) { await show(); return true; }
+    if ((m = q.match(/^(?:\/forget|forget)\s+(?:that\s+|the one about\s+|about\s+)?([\s\S]+)$/i))) {
+      const { items } = await jfetch("/api/memory"), key = m[1].trim().toLowerCase();
+      const hit = /^\d+$/.test(key) ? items[Number(key) - 1] : items.find((x) => x.text.toLowerCase().includes(key));
+      if (!hit) { conLine(`I couldn't find a memory matching <b>${esc(m[1])}</b>.`, "sys"); await show(); return true; }
+      const r = await jfetch(`/api/memory/${hit.id}`, { method: "DELETE" }); D.memory = r.items;
+      conLine(`Forgot: <b>${esc(hit.text)}</b>`, "sys ok");
+      return true;
+    }
+  } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); return true; }
+  return false;
+}
+document.addEventListener("click", async (e) => {
+  const f = e.target.closest("[data-forget]"); if (!f) return;
+  try { const r = await jfetch(`/api/memory/${f.dataset.forget}`, { method: "DELETE" }); D.memory = r.items; f.closest(".ln").innerHTML += ` <span class="dim">· forgotten</span>`; f.remove(); } catch {}
+});
+
 // Plain-English GitHub requests: "read my NexusLLM repo", "add a FAQ to my NexusLLM repo", "show my repos".
 // Only kicks in when you clearly mean YOUR repos, so "how do I create a git repo?" still goes to the agents.
 async function ghIntent(q) {
@@ -1530,14 +1584,20 @@ async function ghIntent(q) {
   if (!ghRepoList?.length) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = null; } }
   const named = (ghRepoList || []).filter((r) => r.name.length >= 3 && new RegExp(`(^|[^\\w.-])${r.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w.-]|$)`).test(t))
     .sort((a, b) => b.name.length - a.name.length)[0]?.name;
-  if (!mine && !named) return null;
+  // Follow-ups in the same chat: "add an example readme to it", "now fix the readme"
+  const lastGh = [...session.items].reverse().slice(0, 6).some((i) => i.k === "pr" || (i.k === "cmd" && /repo|github/i.test(i.text || "")));
+  const follow = !mine && !named && session.repo && lastGh &&
+    /\b(it|that|this|there|the repo|readme|read ?me|file|section|folder|docs?)\b/.test(t) &&
+    /\b(add|update|change|edit|fix|put|write|insert|remove|delete|rename|replace|create|append|include|make|improve|rewrite|read|review|check)\b/.test(t);
+  if (!mine && !named && !follow) return null;
   const readRe = /\b(read|review|look (at|over|through)|check|summari[sz]e|explain|go (over|through)|analy[sz]e|audit|scan|tell me about|what('s| is) in)\b/;
   const addRe = /\b(add|update|change|edit|fix|put|write|insert|remove|delete|rename|replace|create|append|include|make|improve|rewrite|document)\b/;
   const ri = t.search(readRe), ai = t.search(addRe);
   const kind = ri === -1 && ai === -1 ? (named ? "read" : null) : ai === -1 ? "read" : ri === -1 ? "add" : ri < ai ? "read" : "add";
   if (!named && /\b(repos|repositories)\b/.test(t) && (kind === "read" || /\b(list|show|which|what are|see)\b/.test(t) || !kind)) return { kind: "list" };
   if (!kind) return null;
-  const repo = named || curRepo();
+  const remembered = (D.memory || []).map((m) => m.text.match(/\b(?:main|default|primary)\s+(?:github\s+)?repo(?:sitory)?\s+is\s+([\w.-]+)/i)?.[1]).find(Boolean);
+  const repo = named || (follow ? session.repo : null) || curRepo() || (await knownRepo(remembered));
   if (!repo) return { kind: "ask", msg: `Which repo? Say it by name, e.g. <b>${kind === "read" ? "read my NexusLLM repo" : "add a FAQ to my NexusLLM repo"}</b>. Your repos: ${(ghRepoList || []).slice(0, 12).map((r) => `<b>${esc(r.name)}</b>`).join(", ") || "none found"}.` };
   return { kind, repo };
 }
@@ -1608,6 +1668,7 @@ async function ghCommand(q) {
     if (!repo) return conLine("Which repo? Type <b>/repo repo-name</b> once, then <b>/update what to change</b>. (Or <b>/update repo-name what to change</b>.)", "sys");
     if (!instruction) return conLine(`What should change in <b>${esc(repo)}</b>? e.g. <b>/update in README.md under AI Models, add a line about Gemma 4 12B</b>`, "sys");
     if (r) store.set("hq.repo", r);
+    session.repo = repo;
     return ghUpdate(repo, instruction);
   }
 }
@@ -1675,11 +1736,11 @@ function ghUpdate(repo, instruction) {
     conStatus(`${builder.name} writing…`, true);
     const ask = `Repository ${snap.repo}. Make this change: """${instruction}"""
 
-Current files:
-${snap.files.map((f) => `--- ${f.path}${f.cut ? " (TRUNCATED: do not edit this file)" : ""} ---\n${f.text}`).join("\n\n")}
+Other files in the repo (not shown):
+${snap.paths.filter((p) => !originals[p]).slice(0, 200).join("\n") || "(none)"}
 
-Other files in the repo:
-${snap.paths.filter((p) => !originals[p]).slice(0, 200).join("\n")}
+Current files, each between BEGIN and END markers (the markers are not part of the file):
+${snap.files.map((f) => `##### BEGIN ${f.path}${f.cut ? " (only the start is shown; edit it with small FIND/REPLACE edits)" : ` (${f.text.split("\n").length} lines)`}\n${f.text}\n##### END ${f.path}`).join("\n\n")}
 
 How to write the change:
 - For an EXISTING file, output only the parts that change, as edits. Copy the FIND lines exactly from the current file (enough lines to be unique). To add something, FIND the line just before where it goes and REPLACE it with that same line followed by the new lines. Several FIND/REPLACE pairs can go in one block:
@@ -1690,11 +1751,11 @@ exact existing lines
 new lines
 >>>>>>> REPLACE
 === END EDIT ===
-- For a NEW file, output it in full:
+- For a NEW file, or a SHORT existing file (under 60 lines) that you are mostly rewriting, output the whole file:
 === FILE: path/from/repo/root.ext ===
 <the complete file>
 === END FILE ===
-Never rewrite a whole existing file. Never add "Co-authored-by" or similar credit lines anywhere. After the last block, write one short paragraph explaining the change.`;
+Never rewrite a long existing file in full. Never copy the BEGIN/END markers or these instructions into a file. Never add "Co-authored-by" or similar credit lines anywhere. After the last block, write one short paragraph explaining the change.`;
     const r = await work(builder, systemFor(builder, idx.task["write-code"]), [{ role: "user", content: ask }], signal);
     if (r.error) throw new Error(r.error);
     // Safety: never let a change wipe out code the Builder couldn't fully see, or gut a file by accident.

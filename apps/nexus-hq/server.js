@@ -188,6 +188,10 @@ const MODELS = ALL_MODELS.filter((m) => m.provider === "ollama" || route(m).via)
 // ---------- settings changed from the dashboard (e.g. turning Opus off) ----------
 const SETTINGS_FILE = path.join(__dirname, "data", "settings.json");
 function readSettings() { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } }
+// Long-term memory: short facts you ask Nexus HQ to remember, shared by every agent and device.
+const MEMORY_FILE = path.join(__dirname, "data", "memory.json");
+function readMemory() { try { return JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8")); } catch { return []; } }
+function writeMemory(m) { fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true }); fs.writeFileSync(MEMORY_FILE, JSON.stringify(m, null, 2)); }
 function writeSettings(s) { fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true }); fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2)); }
 const isDisabled = (id) => (readSettings().disabledModels || []).includes(id);
 
@@ -446,6 +450,23 @@ async function handle(req, res) {
     }
   }
 
+  // ---- memory ----
+  if (url.pathname === "/api/memory" && req.method === "GET") return jsonOut(res, 200, { items: readMemory() });
+  if (url.pathname === "/api/memory" && req.method === "POST") {
+    const b = await readBody(req), text = String(b.text || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    if (!text) return jsonOut(res, 400, { error: "Nothing to remember" });
+    const m = readMemory();
+    if (m.length >= 50) return jsonOut(res, 400, { error: "Memory is full (50 items). Forget some first with /forget." });
+    const item = { id: Date.now().toString(36), text, at: new Date().toISOString() };
+    m.push(item); writeMemory(m);
+    return jsonOut(res, 200, { item, items: m });
+  }
+  const mm = url.pathname.match(/^\/api\/memory\/([\w-]+)$/);
+  if (mm && req.method === "DELETE") {
+    const m = readMemory().filter((x) => x.id !== mm[1]); writeMemory(m);
+    return jsonOut(res, 200, { items: m });
+  }
+
   // ---- GitHub ----
   if (url.pathname.startsWith("/api/github/")) {
     if (!github) return jsonOut(res, 503, { error: "GitHub isn't connected yet. Add GITHUB_TOKEN to .env and restart Nexus HQ." });
@@ -539,7 +560,7 @@ async function handle(req, res) {
       return res.end(JSON.stringify({ error: `agents.json could not be read: ${e.message}` }));
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, spend: spendInfo() }));
+    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), spend: spendInfo() }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/models") {

@@ -2,6 +2,8 @@
 
 ## 2026-10-14
 
+- Nexus HQ memory: "remember that ...", "what do you remember", "forget ..."; every agent sees remembered facts. Follow-ups like "add it to that repo" stay on the same repo, and repo edits tolerate model noise in FIND blocks.
+
 - Nexus HQ connects to GitHub automatically at startup, shows a GitHub status chip (with a token-expiry warning), and understands plain requests like "read my NexusLLM repo" and "add a FAQ to my NexusLLM repo".
 
 - Nexus HQ web answers no longer show inline citation numbers; sources stay in the Sources list under each answer.
