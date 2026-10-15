@@ -35,6 +35,14 @@ iPhone (Home Screen app) → Tailscale → Nexus-Ai:3100 → Nexus HQ (Node)
 - **Claude Opus 5.5** is optional. It runs the Advisor, Architect and Reviewer, and falls back to the local models when it is off, has no key or is over budget.
   - Budget: `OPUS_MONTHLY_BUDGET=10.00`, `OPUS_DAILY_BUDGET=1.00`, `OPUS_MAX_TOKENS=1500`.
 
+## GitHub workflow
+
+1. `/repo NexusLLM` once. Nexus HQ remembers it.
+2. `/update <what to change>`. Builder writes FIND/REPLACE edits, Reviewer checks them, and a diff card appears.
+3. **Open pull request**, then **Merge now** (squash merge; the temporary `nexus-hq/...` branch is deleted).
+
+Commits are always authored as the token owner with their `users.noreply.github.com` address. Co-author and AI credit trailers are removed from commit messages, PR titles and PR bodies, so the repo only ever lists the owner as a contributor.
+
 ## Operations
 
 ```bash

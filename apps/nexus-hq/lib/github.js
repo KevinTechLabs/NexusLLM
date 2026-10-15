@@ -9,6 +9,17 @@ const API = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/
 const SKIP_DIR = /(^|\/)(node_modules|\.git|dist|build|out|coverage|vendor|venv|\.venv|__pycache__|\.next|\.cache|target|bin|obj)(\/|$)/i;
 const SKIP_FILE = /(\.(png|jpe?g|gif|webp|ico|svg|bmp|mp3|mp4|mov|wav|ogg|zip|gz|tar|7z|rar|pdf|woff2?|ttf|otf|eot|exe|dll|so|dylib|bin|class|jar|pyc|db|sqlite|lock)|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|composer\.lock)|\.min\.(js|css))$/i;
 
+// Commit messages and PR text never credit an AI co-author: drop any "Co-authored-by",
+// "Signed-off-by" or "Generated with Claude" style lines, whatever the model or user typed.
+function clean(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*(co-authored-by|signed-off-by)\s*:/i.test(l))
+    .map((l) => l.replace(/\s*(co-authored-by|signed-off-by)\s*:.*$/i, "").replace(/\s*<?noreply@anthropic\.com>?/gi, ""))
+    .filter((l) => !/(claude[-_ ]session|claude\.ai\/code|generated (with|by) \[?claude)/i.test(l))
+    .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function makeClient(token) {
   async function gh(method, url, body, accept) {
     const r = await fetch(url.startsWith("http") ? url : `${API}${url}`, {
@@ -38,6 +49,12 @@ function makeClient(token) {
 
   let me = null;
   async function user() { return (me ||= await gh("GET", "/user")); }
+  // Every commit Nexus HQ makes is authored by you, with your private GitHub email,
+  // so GitHub's email-privacy check passes and nobody else is ever credited.
+  async function ident() {
+    const u = await user();
+    return { name: u.name || u.login, email: `${u.id}+${u.login}@users.noreply.github.com` };
+  }
 
   // "name" or "owner/name" -> "owner/name"
   async function full(repo) {
@@ -110,7 +127,8 @@ function makeClient(token) {
       .concat(deletions.map((p) => ({ path: p, mode: "100644", type: "blob", sha: null })));
     const parent = await gh("GET", `/repos/${fullName}/git/commits/${parentSha}`);
     const t = await gh("POST", `/repos/${fullName}/git/trees`, { base_tree: parent.tree.sha, tree: entries });
-    const c = await gh("POST", `/repos/${fullName}/git/commits`, { message, tree: t.sha, parents: [parentSha] });
+    const who = await ident();
+    const c = await gh("POST", `/repos/${fullName}/git/commits`, { message: clean(message) || "Update from Nexus HQ", tree: t.sha, parents: [parentSha], author: who, committer: who });
     return c.sha;
   }
 
@@ -122,7 +140,7 @@ function makeClient(token) {
     const branch = `nexus-hq/${slug}-${Date.now().toString(36)}`;
     const sha = await commitFiles(r.full_name, head.object.sha, files, title, deletions);
     await gh("POST", `/repos/${r.full_name}/git/refs`, { ref: `refs/heads/${branch}`, sha });
-    const pr = await gh("POST", `/repos/${r.full_name}/pulls`, { title, body, head: branch, base: r.default_branch });
+    const pr = await gh("POST", `/repos/${r.full_name}/pulls`, { title: clean(title).split("\n")[0] || "Update from Nexus HQ", body: clean(body), head: branch, base: r.default_branch });
     return { url: pr.html_url, number: pr.number, branch };
   }
 
@@ -137,7 +155,7 @@ function makeClient(token) {
     // An empty repo has no branch yet: create the first file to start one, then add the rest in one commit.
     const [first, ...rest] = files;
     const put = await gh("PUT", `/repos/${t.full_name}/contents/${first.path.split("/").map(encodeURIComponent).join("/")}`,
-      { message, content: Buffer.from(first.content, "utf8").toString("base64") });
+      { message: clean(message) || "Initial commit", content: Buffer.from(first.content, "utf8").toString("base64"), author: await ident(), committer: await ident() });
     let sha = put.commit.sha;
     const branch = (await info(repo)).default_branch;
     if (rest.length) {
@@ -147,7 +165,30 @@ function makeClient(token) {
     return { mode: "initial-commit", url: t.html_url, branch, files: files.length };
   }
 
-  return { user, repos, info, tree, snapshot, openPR, publish, full };
+  // Whole text of one file (for small edits inside files too big to show the model in full)
+  async function file(repo, p) {
+    const r = await info(repo);
+    return { repo: r.full_name, path: p, text: await readFile(r.full_name, r.default_branch, p) };
+  }
+
+  // One-tap merge from the dashboard: squash into the default branch, then tidy up the branch.
+  async function merge(repo, number) {
+    const fn = await full(repo);
+    const pr = await gh("GET", `/repos/${fn}/pulls/${Number(number)}`);
+    if (pr.merged) return { merged: true, already: true, url: pr.html_url };
+    if (pr.state !== "open") throw new Error(`Pull request #${number} is closed`);
+    const m = await gh("PUT", `/repos/${fn}/pulls/${Number(number)}/merge`, {
+      merge_method: "squash",
+      commit_title: `${clean(pr.title).split("\n")[0]} (#${pr.number})`,
+      commit_message: "",
+    });
+    if (pr.head?.ref?.startsWith("nexus-hq/") && pr.head.repo?.full_name === fn) {
+      try { await gh("DELETE", `/repos/${fn}/git/refs/heads/${pr.head.ref.split("/").map(encodeURIComponent).join("/")}`); } catch {}
+    }
+    return { merged: !!m.merged, sha: m.sha, url: pr.html_url };
+  }
+
+  return { user, repos, info, tree, snapshot, openPR, publish, file, merge, full };
 }
 
-module.exports = { makeClient };
+module.exports = { makeClient, clean };

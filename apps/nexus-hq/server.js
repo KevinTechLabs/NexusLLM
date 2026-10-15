@@ -455,6 +455,15 @@ async function handle(req, res) {
         const budget = Math.min(Number(url.searchParams.get("budget")) || 40000, 120000);
         return jsonOut(res, 200, await github.snapshot(url.searchParams.get("repo"), { budget, focus }));
       }
+      if (url.pathname === "/api/github/file") {
+        const p = safeRel(url.searchParams.get("path") || "");
+        if (!p) return jsonOut(res, 400, { error: "bad path" });
+        return jsonOut(res, 200, await github.file(url.searchParams.get("repo"), p));
+      }
+      if (url.pathname === "/api/github/merge" && req.method === "POST") {
+        const b = await readBody(req);
+        return jsonOut(res, 200, await github.merge(b.repo, b.number));
+      }
       if (url.pathname === "/api/github/pr" && req.method === "POST") {
         const b = await readBody(req);
         const files = (b.files || []).map((f) => ({ path: safeRel(f.path), content: String(f.content ?? "") })).filter((f) => f.path);

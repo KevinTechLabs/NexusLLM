@@ -16,7 +16,7 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - **Full screen:** the ⛶ button or `/full`.
   - **Saved chats:** stored on the server, so the phone and PC share them. Use **+ New** and **Chats** to manage them.
 - **House style:** every agent writes in a clear, Opus-like format, and answers turn into Markdown tables when a table helps.
-- **Web search:** uses a private SearXNG container. The **WEB** switch cycles AUTO, ON and OFF. Answers have ChatGPT-style hover citations and a folded source list.
+- **Web search:** uses a private SearXNG container. The **WEB** switch cycles AUTO, ON and OFF. Answers read cleanly with no citation numbers in the text; every source is listed in the **Sources** box under the answer.
 - **Claude Opus 5.5 lead (optional):** Opus plans as Architect, reviews as Reviewer and answers `@opus` questions as Advisor, while the local models do the bulk of the work. Token cost is kept down by:
   - sending Opus a short recap instead of the full chat
   - capping answer length
@@ -24,7 +24,8 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - a monthly limit (and an optional daily one)
 
   The header shows spend. Turn Opus off with `/opus off` or the Opus chip, and its agents fall back to the local models. The server enforces this, so it costs $0 while off.
-- **GitHub:** `/repos`, `/review repo` and `/update repo change`. Updates show a diff and are opened as a **pull request on a new branch**, only when you click.
+- **GitHub:** pick a repo once with `/repo NexusLLM`, then just type `/update what to change`. Builder makes small, targeted edits (even inside big files), Reviewer checks them, and you get a diff → **Open pull request** → **Merge now**, all from the console. Nothing is written until you click.
+- **You're the only contributor:** every commit is authored by you with your private GitHub email, and any "Co-authored-by" or AI credit line is stripped from commit messages and pull requests automatically.
 - **Projects:** `/project new name`, **Save** buttons on code blocks (or `/save`), `/files`, and `/publish repo`. An empty repo gets an initial commit; a repo with code gets a pull request.
 - **Login screen:** themed, with logout. The password is checked server-side with a timing-safe comparison.
 - **Home Screen icon:** "Neural" brain icon, PWA manifest and Apple touch icon.
@@ -88,6 +89,17 @@ sudo systemctl restart nexus-hq
    - Permissions: **Contents** and **Pull requests**, both **Read and write**
 2. Add `GITHUB_TOKEN=github_pat_...` to `.env`, then restart.
 3. Type `/github` in the console to confirm.
+
+Everyday use:
+
+```text
+/repo NexusLLM                                   pick the repo once (remembered)
+/update in README.md under AI Models, add ...    write the change and show the diff
+→ Open pull request → Merge now                  two taps, no GitHub site needed
+/review                                          review the current repo
+```
+
+Tips: name the file and section in `/update` for the best results. `/update` refuses unsafe edits (text it can't find, files it can't fully read, or edits that would delete most of a file).
 
 ### Claude Opus (optional, paid)
 

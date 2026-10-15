@@ -2,6 +2,10 @@
 
 ## 2026-10-14
 
+- Nexus HQ web answers no longer show inline citation numbers; sources stay in the Sources list under each answer.
+- Nexus HQ GitHub workflow: `/repo` remembers the repo, `/update` makes targeted FIND/REPLACE edits (safe inside large files), and the change card has a one-tap **Merge now**.
+- Nexus HQ commits are always authored by the repo owner (private noreply email) and AI co-author lines are stripped automatically.
+
 - Switched the general "Nexus" model from Qwen3 8B to Gemma 4 12B in the README, models, Open WebUI and Knowledge Base docs.
 - Restored `apps/nexus-hq/server.js` and `apps/nexus-hq/agents.json`, which an automated update had accidentally truncated.
 - Nexus HQ `/update` now refuses unsafe edits: files too large to read in full, and edits that would shrink a file by more than 40% unless removal was requested.

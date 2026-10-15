@@ -967,7 +967,7 @@ function conFull(on) {
 }
 
 // Streams one agent's answer into the log, then records it in the session.
-function outBlock(agent) {
+function outBlock(agent, sources) {
   const log = $("#conLog");
   if (!session.items.length) log.innerHTML = "";
   const d = document.createElement("div");
@@ -986,6 +986,7 @@ function outBlock(agent) {
         raf = null;
         const near = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
         body.innerHTML = md(latest);
+        if (sources?.length) linkCitations(body, sources);
         if (near) log.scrollTop = log.scrollHeight;
       });
     },
@@ -1006,7 +1007,7 @@ async function work(agent, system, messages, signal, sources) {
       : "isn't available";
     conLine(`${esc(own?.label || ({ opus: "Claude Opus", gpt: "GPT" }[agent.model] || agent.model))} ${why}, so ${esc(modelOf(agent).label)} is standing in`, "sys dim");
   }
-  const ob = outBlock(agent);
+  const ob = outBlock(agent, sources);
   const r = await streamChat(effModelId(agent), system, messages, signal, (t) => ob.update(t), { fallback: agent.fallback, onNote: (t) => conLine(esc(t), "sys dim") });
   ob.done(r, sources);
   return r;
@@ -1028,31 +1029,15 @@ function siteName(u) {
 }
 const hueOf = (u) => [...hostOf(u)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
 
-// Turn [1], [1][3] and [1, 3] in the answer into pills that show a preview card.
+// Remove [1], [1][3] and [1, 3] markers from the answer text; the sources stay in the "Sources" list underneath.
 function linkCitations(body, src) {
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement.closest("pre, code, a, .cite") ? NodeFilter.FILTER_REJECT : /\[\d/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+    acceptNode: (n) => (n.parentElement.closest("pre, code") ? NodeFilter.FILTER_REJECT : /\[\s*\d/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
   });
   const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
-  const re = /(?:\s*\[\s*\d+(?:\s*[,;]\s*\d+)*\s*\])+/g;
+  const re = /(?:\s*\[\s*\d+(?:\s*[,;\u2013-]\s*\d+)*\s*\])+/g;
   for (const n of nodes) {
-    const txt = n.nodeValue; let last = 0, m, frag = document.createDocumentFragment(), hit = false;
-    re.lastIndex = 0;
-    while ((m = re.exec(txt))) {
-      const nums = [...new Set((m[0].match(/\d+/g) || []).map(Number))].filter((k) => k >= 1 && k <= src.length);
-      if (!nums.length) continue;
-      hit = true;
-      frag.append(txt.slice(last, m.index));
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "cite"; b.dataset.cite = nums.join(",");
-      b.innerHTML = `<i style="--h:${hueOf(src[nums[0] - 1].url)}"></i>${esc(siteName(src[nums[0] - 1].url))}${nums.length > 1 ? ` <span>+${nums.length - 1}</span>` : ""}`;
-      b.setAttribute("aria-label", `Sources ${nums.join(", ")}`);
-      frag.append(" ", b);
-      last = m.index + m[0].length;
-    }
-    if (!hit) continue;
-    frag.append(txt.slice(last));
-    n.replaceWith(frag);
+    n.nodeValue = n.nodeValue.replace(re, (m) => ((m.match(/\d+/g) || []).some((k) => k >= 1 && k <= src.length) ? "" : m));
   }
 }
 
@@ -1117,7 +1102,7 @@ function renderWebChip() {
 }
 function webBlock(query, results) {
   const body = results.map((x, i) => `[${i + 1}] ${x.title}\n${x.url}\n${(x.text || x.snippet || "").replace(/\s+/g, " ").trim()}`).join("\n\n");
-  return `Web search results for "${query}" (retrieved ${todayStr()}):\n\n${body}\n\nUse these results to answer. Prefer them over your own memory for anything current, cite them inline like [1] or [2], and say plainly if they don't answer the question. Don't invent sources.\n\n`;
+  return `Web search results for "${query}" (retrieved ${todayStr()}):\n\n${body}\n\nUse these results to answer. Prefer them over your own memory for anything current, and say plainly if they don't answer the question. Don't put citation numbers like [1] in your answer and don't list sources at the end; the app shows the sources separately. Don't invent facts the results don't support.\n\n`;
 }
 async function searchWeb(query, signal) {
   conStatus("searching the web…", true);
@@ -1210,8 +1195,9 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 <b>@opus</b> question   ask Claude Opus directly (a few cents; counts toward your limit)
 <b>/opus off</b>  <b>/opus on</b>   switch Opus off (local models take over) or back on
 <b>/web</b> question    search the web first, whatever the web setting
-<b>/repos</b>            list your GitHub repos      <b>/review</b> repo   review a repo
-<b>/update</b> repo what  write a change and propose it as a pull request
+<b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
+<b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
+<b>/review</b>           review the current repo (or <b>/review</b> name)
 <b>/project new</b> name  start a project; <b>Save</b> on code blocks or <b>/save</b> adds files
 <b>/files</b>            list the project's files    <b>/publish</b> repo  put the project in a GitHub repo
 <b>/ship</b> feature     run the 4-step Ship-a-feature pipeline
@@ -1240,7 +1226,7 @@ async function dispatch(raw) {
   }
   addItem({ k: "cmd", text: q });
   if (q === "/help" || q === "help") return conLine(`<pre class="help">${HELP}</pre>`, "sys");
-  if (/^\/(github|repos|review|update|project|files|save|publish)\b/.test(q)) {
+  if (/^\/(github|repos|repo|review|update|project|files|save|publish)\b/.test(q)) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
     return saveSession();
   }
@@ -1455,8 +1441,10 @@ function prCardHTML(it) {
     const d = lineDiff(f.old ?? "", f.content);
     return `<details class="pr-file"><summary><b>${esc(f.path)}</b> <span class="dim">${f.old == null ? "new file" : ""}</span> <span class="plus">+${d.add}</span> <span class="minus">−${d.del}</span></summary>${diffHTML(d.rows)}</details>`;
   }).join("");
-  const action = it.prUrl
-    ? `<a class="btn" href="${esc(safeUrl(it.prUrl))}" target="_blank" rel="noopener">Pull request #${esc(it.prNumber)} opened ↗</a>`
+  const action = it.merged
+    ? `<a class="btn" href="${esc(safeUrl(it.prUrl))}" target="_blank" rel="noopener">✓ Merged into ${esc(it.repo)} (#${esc(it.prNumber)}) ↗</a>`
+    : it.prUrl
+    ? `<a class="btn" href="${esc(safeUrl(it.prUrl))}" target="_blank" rel="noopener">Pull request #${esc(it.prNumber)} opened ↗</a> <button class="btn primary" data-gh="merge" style="--c:var(--chat)">Merge now</button> <span class="dim">or review it on GitHub first</span>`
     : `<button class="btn primary" data-gh="open-pr" style="--c:var(--chat)">Open pull request on ${esc(it.repo)}</button> <span class="dim">nothing changes on GitHub until you click</span>`;
   return `<div class="pr-card"><div class="pr-h">Proposed changes · <b>${esc(it.repo)}</b></div><div class="pr-t">${esc(it.title)}</div>${files}<div class="pr-a">${action}</div></div>`;
 }
@@ -1474,9 +1462,50 @@ function parseFileBlocks(text) {
   return out;
 }
 
+// Parse "=== EDIT: path ===" blocks of FIND/REPLACE pairs (small edits inside existing files)
+function parseEditBlocks(text) {
+  const out = [], re = /^=== EDIT: (.+?) ===\s*\n([\s\S]*?)\n=== END EDIT ===/gm;
+  let m;
+  while ((m = re.exec(text))) {
+    const pairs = [], pr = /<{3,}\s*FIND\s*\n([\s\S]*?)\n={3,}\s*\n([\s\S]*?)\n?>{3,}\s*REPLACE/g;
+    let q;
+    while ((q = pr.exec(m[2]))) pairs.push({ find: q[1], replace: q[2] });
+    if (pairs.length) out.push({ path: m[1].trim(), pairs });
+  }
+  return out;
+}
+// Apply FIND/REPLACE pairs; each FIND must match exactly one place (exactly, or ignoring indentation/trailing spaces).
+function applyEdits(text, pairs) {
+  let cur = text;
+  for (const { find, replace } of pairs) {
+    if (!find.trim()) return { error: "an edit had nothing to find" };
+    const n = cur.split(find).length - 1;
+    if (n === 1) { cur = cur.replace(find, () => replace); continue; }
+    if (n > 1) return { error: `"${find.trim().split("\n")[0].slice(0, 50)}" appears ${n} times` };
+    const lines = cur.split("\n"), fl = find.split("\n").map((l) => l.trim());
+    while (fl.length && !fl[fl.length - 1]) fl.pop();
+    const hits = [];
+    for (let i = 0; i + fl.length <= lines.length; i++) if (fl.every((l, k) => lines[i + k].trim() === l)) hits.push(i);
+    if (hits.length !== 1) return { error: hits.length ? `"${fl[0].slice(0, 50)}" appears ${hits.length} times` : `couldn't find "${fl[0].slice(0, 50)}"` };
+    lines.splice(hits[0], fl.length, ...replace.split("\n"));
+    cur = lines.join("\n");
+  }
+  return { text: cur };
+}
+
+// Remembered repo, so "/update what to change" works without retyping the name
+let ghRepoList = null;
+const curRepo = () => store.get("hq.repo", "");
+async function knownRepo(name) {
+  if (!name) return null;
+  if (!ghRepoList) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = []; } }
+  const n = name.toLowerCase().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+  return ghRepoList.find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
+}
+
 async function ghCommand(q) {
   const [cmd, ...restArr] = q.split(/\s+/); const rest = q.slice(cmd.length).trim();
-  const isGh = ["/github", "/repos", "/review", "/update"].includes(cmd);
+  const isGh = ["/github", "/repos", "/review", "/update", "/repo"].includes(cmd);
   if (isGh && !ghEnabled()) return conLine(GH_SETUP, "sys");
 
   if (cmd === "/project") {
@@ -1513,17 +1542,34 @@ async function ghCommand(q) {
   }
   if (cmd === "/github") {
     const s = await jfetch("/api/github/status");
-    return conLine(`Connected to GitHub as <b>${esc(s.login)}</b>. Try <b>/repos</b>, <b>/review repo-name</b>, <b>/update repo-name what to change</b>, <b>/project new name</b> and <b>/publish repo-name</b>.`, "sys ok");
+    return conLine(`Connected to GitHub as <b>${esc(s.login)}</b>. Pick a repo with <b>/repo name</b> (see <b>/repos</b>), then type <b>/update what to change</b>. Also: <b>/review</b>, <b>/project new name</b>, <b>/publish repo-name</b>.`, "sys ok");
   }
   if (cmd === "/repos") {
     const { repos } = await jfetch("/api/github/repos");
     if (!repos.length) return conLine("No repos found on your account.", "sys");
     return conLine(repos.slice(0, 40).map((r) => `<b>${esc(r.name)}</b> <span class="dim">${esc(r.language || "")} · ${esc((r.description || "").slice(0, 60))}</span> <button class="linkbtn" data-gh="review" data-repo="${esc(r.full_name)}">review</button>`).join("<br>"), "sys");
   }
-  if (cmd === "/review") return ghReview(restArr[0], restArr.slice(1).join(" "));
+  if (cmd === "/repo") {
+    if (!rest) return conLine(curRepo() ? `Current repo: <b>${esc(curRepo())}</b>. Now just type <b>/update what to change</b>. Switch with <b>/repo other-name</b>.` : "No repo picked. Type <b>/repo NexusLLM</b> (or any repo from <b>/repos</b>).", "sys");
+    const r = await knownRepo(restArr[0]);
+    if (!r) return conLine(`I can't find a repo called <b>${esc(restArr[0])}</b> on your account. Type <b>/repos</b> to see them.`, "sys");
+    store.set("hq.repo", r);
+    return conLine(`Current repo: <b>${esc(r)}</b>. Now just type <b>/update what to change</b> or <b>/review</b>.`, "sys ok");
+  }
+  if (cmd === "/review") {
+    const r = (await knownRepo(restArr[0])) || null;
+    const repo = r || curRepo();
+    if (!repo) return conLine("Which repo? Type <b>/review repo-name</b>, or pick one first with <b>/repo repo-name</b>.", "sys");
+    if (r) store.set("hq.repo", r);
+    return ghReview(repo, (r ? restArr.slice(1) : restArr).join(" "));
+  }
   if (cmd === "/update") {
-    if (restArr.length < 2) return conLine("Usage: <b>/update repo-name what you want changed</b>", "sys");
-    return ghUpdate(restArr[0], restArr.slice(1).join(" "));
+    const r = await knownRepo(restArr[0]);
+    const repo = r || curRepo(), instruction = (r ? restArr.slice(1) : restArr).join(" ").trim();
+    if (!repo) return conLine("Which repo? Type <b>/repo repo-name</b> once, then <b>/update what to change</b>. (Or <b>/update repo-name what to change</b>.)", "sys");
+    if (!instruction) return conLine(`What should change in <b>${esc(repo)}</b>? e.g. <b>/update in README.md under AI Models, add a line about Gemma 4 12B</b>`, "sys");
+    if (r) store.set("hq.repo", r);
+    return ghUpdate(repo, instruction);
   }
 }
 
@@ -1596,17 +1642,37 @@ ${snap.files.map((f) => `--- ${f.path}${f.cut ? " (TRUNCATED: do not edit this f
 Other files in the repo:
 ${snap.paths.filter((p) => !originals[p]).slice(0, 200).join("\n")}
 
-Output every file you change or create in full, exactly in this format and nothing else between files:
+How to write the change:
+- For an EXISTING file, output only the parts that change, as edits. Copy the FIND lines exactly from the current file (enough lines to be unique). To add something, FIND the line just before where it goes and REPLACE it with that same line followed by the new lines. Several FIND/REPLACE pairs can go in one block:
+=== EDIT: path/from/repo/root.ext ===
+<<<<<<< FIND
+exact existing lines
+=======
+new lines
+>>>>>>> REPLACE
+=== END EDIT ===
+- For a NEW file, output it in full:
 === FILE: path/from/repo/root.ext ===
-<the complete new file content>
+<the complete file>
 === END FILE ===
-Keep everything you aren't asked to change exactly as it was. Then, after the last file, one short paragraph explaining the change.`;
+Never rewrite a whole existing file. Never add "Co-authored-by" or similar credit lines anywhere. After the last block, write one short paragraph explaining the change.`;
     const r = await work(builder, systemFor(builder, idx.task["write-code"]), [{ role: "user", content: ask }], signal);
     if (r.error) throw new Error(r.error);
     // Safety: never let a change wipe out code the Builder couldn't fully see, or gut a file by accident.
     const allowShrink = /\b(remove|delete|drop|shorten|trim|clean ?up|simplif|strip|cut)\b/i.test(instruction);
     const blocked = [];
-    const changes = parseFileBlocks(r.text).filter((c) => {
+    // Small edits: apply FIND/REPLACE against the full current file (fetched whole if it was too big to show)
+    const edited = [];
+    for (const ed of parseEditBlocks(r.text)) {
+      if (!snap.paths.includes(ed.path)) { blocked.push(`${ed.path} (not in the repo)`); continue; }
+      let base = originals[ed.path];
+      if (base == null) { try { base = (await jfetch(`/api/github/file?repo=${encodeURIComponent(snap.repo)}&path=${encodeURIComponent(ed.path)}`)).text; originals[ed.path] = base; } catch (e) { blocked.push(`${ed.path} (couldn't read it: ${e.message})`); continue; } }
+      const prev = edited.find((x) => x.path === ed.path);
+      const res = applyEdits(prev ? prev.content : base, ed.pairs);
+      if (res.error) { blocked.push(`${ed.path} (${res.error})`); continue; }
+      if (prev) prev.content = res.text; else edited.push({ path: ed.path, content: res.text });
+    }
+    const changes = [...edited, ...parseFileBlocks(r.text).filter((c) => !edited.some((x) => x.path === c.path))].filter((c) => {
       if (originals[c.path] === c.content) return false;
       if (originals[c.path] == null && snap.paths.includes(c.path)) { blocked.push(`${c.path} (too big to read in full, so it can't be safely rewritten)`); return false; }
       const old = originals[c.path];
@@ -1677,11 +1743,22 @@ document.addEventListener("click", async (e) => {
     } catch (err) { g.disabled = false; g.textContent = "Publish to GitHub"; conLine(`<span class="err">${esc(err.message)}</span>`, "sys"); }
     return;
   }
+  if (act === "merge") {
+    const host = g.closest(".out"), it = host?._item; if (!it) return;
+    g.disabled = true; g.textContent = "Merging…";
+    try {
+      const r = await jfetch("/api/github/merge", { method: "POST", body: JSON.stringify({ repo: it.repo, number: it.prNumber }) });
+      if (!r.merged) throw new Error("GitHub didn't merge it. Open the pull request to see why.");
+      it.merged = true; host.innerHTML = prCardHTML(it); saveSession();
+      conLine(`✓ Merged into <b>${esc(it.repo)}</b>. The change is live on GitHub.`, "sys ok");
+    } catch (err) { g.disabled = false; g.textContent = "Merge now"; conLine(`<span class="err">${esc(err.message)}</span>`, "sys"); }
+    return;
+  }
   if (act === "open-pr") {
     const host = g.closest(".out"), it = host?._item; if (!it) return;
     g.disabled = true; g.textContent = "Opening pull request…";
     try {
-      const body = `${it.instruction}\n\nProposed by Nexus HQ (Builder wrote it, Reviewer checked it). Review the diff before merging.`;
+      const body = `${it.instruction}\n\nProposed in Nexus HQ. Review the diff before merging.`;
       const r = await jfetch("/api/github/pr", { method: "POST", body: JSON.stringify({ repo: it.repo, title: it.title, body, files: it.files.map((f) => ({ path: f.path, content: f.content })) }) });
       it.prUrl = r.url; it.prNumber = r.number;
       host.innerHTML = prCardHTML(it);
