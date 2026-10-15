@@ -190,8 +190,8 @@ const SETTINGS_FILE = path.join(__dirname, "data", "settings.json");
 function readSettings() { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } }
 // Long-term memory: short facts you ask Nexus HQ to remember, shared by every agent and device.
 const MEMORY_FILE = path.join(__dirname, "data", "memory.json");
-function readMemory() { try { return JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8")); } catch { return []; } }
-function writeMemory(m) { fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true }); fs.writeFileSync(MEMORY_FILE, JSON.stringify(m, null, 2)); }
+function readMemory() { if (typeof vault !== "undefined" && vault) return vault.readMemory(); try { return JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8")); } catch { return []; } }
+function writeMemory(m) { if (typeof vault !== "undefined" && vault) return vault.writeMemory(m); fs.mkdirSync(path.dirname(MEMORY_FILE), { recursive: true }); fs.writeFileSync(MEMORY_FILE, JSON.stringify(m, null, 2)); }
 function writeSettings(s) { fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true }); fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2)); }
 const isDisabled = (id) => (readSettings().disabledModels || []).includes(id);
 
@@ -256,6 +256,21 @@ async function status() {
 
 // ---------- GitHub + projects ----------
 const { makeClient } = require("./lib/github");
+const { makeVault } = require("./lib/vault");
+// Obsidian vault (notes + memory). Set VAULT_DIR in .env to move it, or VAULT_DIR=off to turn it off.
+// Default: a "NexusVault" folder next to the nexus-hq folder (e.g. ~/Documents/NexusVault), whichever user runs the service.
+const VAULT_DIR = env("VAULT_DIR", path.resolve(__dirname, "..", "NexusVault"));
+let vault = null;
+if (!/^(off|none|false|0)$/i.test(VAULT_DIR)) {
+  try {
+    vault = makeVault(VAULT_DIR);
+    // one-time move of facts saved before the vault existed
+    const old = path.join(__dirname, "data", "memory.json");
+    if (fs.existsSync(old) && !vault.readMemory().length) {
+      try { const items = JSON.parse(fs.readFileSync(old, "utf8")); if (items.length) vault.writeMemory(items); fs.renameSync(old, old + ".moved-to-vault"); } catch {}
+    }
+  } catch (e) { console.warn(`Vault disabled: ${e.message}`); vault = null; }
+}
 const GITHUB_TOKEN = env("GITHUB_TOKEN", "");
 const github = GITHUB_TOKEN ? makeClient(GITHUB_TOKEN) : null;
 // Connect to GitHub as soon as the server starts, and re-check every 6 hours (catches an expired token).
@@ -457,14 +472,40 @@ async function handle(req, res) {
     if (!text) return jsonOut(res, 400, { error: "Nothing to remember" });
     const m = readMemory();
     if (m.length >= 50) return jsonOut(res, 400, { error: "Memory is full (50 items). Forget some first with /forget." });
-    const item = { id: Date.now().toString(36), text, at: new Date().toISOString() };
-    m.push(item); writeMemory(m);
-    return jsonOut(res, 200, { item, items: m });
+    const dup = m.find((x) => x.text.toLowerCase() === text.toLowerCase());
+    if (dup) return jsonOut(res, 200, { item: dup, items: m, duplicate: true });
+    m.push({ id: Date.now().toString(36), text, at: new Date().toISOString() }); writeMemory(m);
+    const items = readMemory();
+    return jsonOut(res, 200, { item: items.find((x) => x.text === text) || items[items.length - 1], items });
   }
   const mm = url.pathname.match(/^\/api\/memory\/([\w-]+)$/);
   if (mm && req.method === "DELETE") {
-    const m = readMemory().filter((x) => x.id !== mm[1]); writeMemory(m);
-    return jsonOut(res, 200, { items: m });
+    writeMemory(readMemory().filter((x) => x.id !== mm[1]));
+    return jsonOut(res, 200, { items: readMemory() });
+  }
+
+  // ---- Obsidian vault ----
+  if (url.pathname.startsWith("/api/vault")) {
+    if (!vault) return jsonOut(res, 503, { error: "The notes vault is turned off (VAULT_DIR=off in .env)." });
+    try {
+      if (url.pathname === "/api/vault" && req.method === "GET") {
+        const notes = vault.list();
+        return jsonOut(res, 200, { name: vault.name, dir: vault.root, notes, memory: vault.readMemory() });
+      }
+      if (url.pathname === "/api/vault/note" && req.method === "GET") return jsonOut(res, 200, vault.read(url.searchParams.get("path") || ""));
+      if (url.pathname === "/api/vault/note" && req.method === "POST") {
+        const b = await readBody(req);
+        if (!String(b.body || "").trim()) return jsonOut(res, 400, { error: "Empty note" });
+        return jsonOut(res, 200, vault.save({ title: b.title, body: String(b.body).slice(0, 60000), tags: Array.isArray(b.tags) ? b.tags : [], folder: b.folder || "Notes", key: b.key || "", source: b.source || "nexus-hq" }));
+      }
+      if (url.pathname === "/api/vault/note" && req.method === "DELETE") return jsonOut(res, 200, vault.remove(url.searchParams.get("path") || ""));
+      if (url.pathname === "/api/vault/search") return jsonOut(res, 200, { results: vault.search(url.searchParams.get("q") || "", Math.min(Number(url.searchParams.get("k")) || 3, 8)) });
+      if (url.pathname === "/api/vault/repo" && req.method === "POST") {
+        const b = await readBody(req);
+        return jsonOut(res, 200, vault.repoNote(String(b.repo || ""), { overview: b.overview ? String(b.overview).slice(0, 20000) : undefined, url: b.url }));
+      }
+    } catch (e) { return jsonOut(res, e.status || 500, { error: e.message }); }
+    return jsonOut(res, 404, { error: "unknown vault action" });
   }
 
   // ---- GitHub ----
@@ -485,7 +526,12 @@ async function handle(req, res) {
       }
       if (url.pathname === "/api/github/merge" && req.method === "POST") {
         const b = await readBody(req);
-        return jsonOut(res, 200, await github.merge(b.repo, b.number));
+        const r = await github.merge(b.repo, b.number);
+        // Log the merge in the repo's note in the vault
+        if (vault && r.merged && !r.already) {
+          try { const full = await github.full(b.repo); vault.repoNote(full, { url: `https://github.com/${full}`, logLine: `- ${new Date().toISOString().slice(0, 10)} — ${String(b.title || r.title || "Update").replace(/\s+/g, " ").slice(0, 120)} ([#${b.number}](${r.url}))` }); } catch {}
+        }
+        return jsonOut(res, 200, r);
       }
       if (url.pathname === "/api/github/pr" && req.method === "POST") {
         const b = await readBody(req);
@@ -560,7 +606,7 @@ async function handle(req, res) {
       return res.end(JSON.stringify({ error: `agents.json could not be read: ${e.message}` }));
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), spend: spendInfo() }));
+    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), vault: vault ? { enabled: true, name: vault.name, notes: vault.list().length } : { enabled: false }, spend: spendInfo() }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/models") {

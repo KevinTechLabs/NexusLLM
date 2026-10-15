@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ Obsidian vault: Vault tab (graph, reader, search, tags, memory), "save this to my notes", "make a note about ...", repo notes with automatic merge logs, relevant notes given to agents, no duplicate notes, `Memory.md` as editable memory, `Private/` folder never read by agents.
+
 - Nexus HQ understands more ways to ask for repo changes ("get rid of", "clean up", "keep only", ...), keeps follow-ups on the same repo for your next few messages, and passes the earlier request along with the follow-up.
 
 ## 2026-10-14

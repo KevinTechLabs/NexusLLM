@@ -291,6 +291,7 @@ function renderView() {
   stage.style.width = stage.style.height = "";
   const W = vp.clientWidth, H = vp.clientHeight;
   if (W < 60 || H < 60) return; // map is hidden (e.g. full-screen console); draw it when it comes back
+  if (view === "vault") { $("#deptSwitch").hidden = true; return renderVault(stage); }
   if (view === "map") renderMap(stage, W, H); else renderTree(stage, view, W, H);
   $("#deptSwitch").hidden = view === "map";
   if (view !== "map") $("#deptName").textContent = idx.dept[view]?.name || view;
@@ -793,7 +794,7 @@ function go(v) {
 }
 function fromHash() {
   const h = location.hash.slice(1) || "map";
-  view = h === "map" || idx.dept[h] || !D ? h : "map";
+  view = h === "map" || h === "vault" || idx.dept[h] || !D ? h : "map";
   if (D) { renderChrome(); renderView(); }
 }
 addEventListener("hashchange", fromHash);
@@ -1206,6 +1207,7 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 <b>/web</b> question    search the web first, whatever the web setting
 GitHub: just ask, e.g. <b>read my NexusLLM repo</b> · <b>add a FAQ to my NexusLLM repo</b> · <b>show my repos</b>
 Memory: <b>remember that</b> ... · <b>what do you remember</b> · <b>forget</b> 2 (or forget the one about ...)
+Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the <b>Vault</b> tab to browse them
 <b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
 <b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
 <b>/review</b>           review the current repo (or <b>/review</b> name)
@@ -1243,6 +1245,7 @@ async function dispatch(raw) {
   }
   const memCmd = await memoryCommand(q);
   if (memCmd) return saveSession();
+  if (vaultOn() && await noteCommand(q)) return saveSession();
   if (!/^[\/@]/.test(q) && ghEnabled()) {
     const gi = await ghIntent(q);
     if (gi) {
@@ -1299,6 +1302,12 @@ async function dispatch(raw) {
     sources = await searchWeb(forceWeb || !routed ? text : routed.query, signal);
     if (signal.aborted) return finish("stopped");
     if (sources.length) webText = webBlock(forceWeb || !routed ? text : routed.query, sources);
+  }
+
+  // Notes from your Obsidian vault that match the question (Private/ is never searched)
+  if (vaultOn() && !forceWeb) {
+    const notes = await vaultContext(text);
+    if (notes.text) webText = notes.text + webText;
   }
 
   // Paid models get a short recap instead of the whole chat.
@@ -1546,6 +1555,100 @@ async function knownRepo(name) {
   if (!ghRepoList?.length) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = null; } }
   const n = name.toLowerCase().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
   return (ghRepoList || []).find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
+}
+
+// ----- Obsidian vault: notes -----
+const vaultOn = () => !!D?.vault?.enabled;
+// Condensed from the obsidian-markdown skill in kepano/obsidian-skills (MIT), sized for a 12B local model.
+const NOTE_RULES = `Write an Obsidian note in Obsidian Flavored Markdown:
+- Start with "# Title". Use "## " headings for sections, short paragraphs, bullet lists, and Markdown tables for comparisons or specs.
+- Link related notes with [[Exact Note Title]], but only titles from the list you are given. Use [text](url) only for web links.
+- Use callouts for the key takeaway and any caveat, e.g.:
+> [!summary] Key takeaway
+> one or two lines
+> [!warning] Caveat
+> one line
+- Use ==highlight== for at most two critical facts.
+- No frontmatter, no HTML, no "Sources" section (the app adds those). Don't invent facts that aren't in the material.`;
+
+async function vaultContext(q) {
+  try {
+    const { results } = await jfetch(`/api/vault/search?q=${encodeURIComponent(q)}&k=3`);
+    if (!results?.length) return { text: "" };
+    conLine(`📓 using ${results.length === 1 ? "a note" : `${results.length} notes`} from your vault: ${results.map((r) => `<button class="linkbtn" data-note="${esc(r.path)}">${esc(r.title)}</button>`).join(", ")}`, "sys dim");
+    const body = results.map((r) => `### ${r.title}\n${r.text.slice(0, 1400)}`).join("\n\n").slice(0, 4200);
+    return { text: `Notes from the user's own Obsidian vault that may be relevant (use them when they help, prefer them over guesses, and mention the note by its title if you rely on it):\n\n${body}\n\n` };
+  } catch { return { text: "" }; }
+}
+
+function parseNoteReply(text, fallbackTitle) {
+  const t = String(text || "").replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/i, "$1");
+  const title = (t.match(/^\s*TITLE:\s*(.+)$/im) || [])[1]?.trim().replace(/^["'#\s]+|["']$/g, "") || fallbackTitle;
+  const tags = ((t.match(/^\s*TAGS:\s*(.+)$/im) || [])[1] || "").split(/[,\s]+/).map((x) => x.replace(/^#/, "").trim()).filter(Boolean);
+  let body = t.includes("\n---") ? t.slice(t.indexOf("\n---") + 4) : t.replace(/^\s*(TITLE|TAGS):.*$/gim, "");
+  body = body.replace(/^\s*---\s*\n/, "").trim();
+  if (!/^#\s/.test(body)) body = `# ${title}\n\n${body}`;
+  return { title: title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || fallbackTitle, tags, body };
+}
+
+function noteCard(r, note, extra = "") {
+  return `📓 ${r.mode === "updated" ? "Updated your existing note" : "Saved a new note"} <button class="linkbtn" data-note="${esc(r.path)}"><b>${esc(r.title)}</b></button> <span class="dim">${esc(r.path)}${r.mode === "updated" ? " · no duplicate made" : ""}</span>${note?.tags?.length ? `<br><span class="dim">${note.tags.map((t) => "#" + esc(t)).join(" ")}</span>` : ""}${extra}`;
+}
+
+async function writeNote(agent, ask, fallbackTitle, statusText) {
+  const { notes } = await jfetch("/api/vault");
+  const titles = notes.filter((n) => !n.private).map((n) => n.title).slice(0, 60);
+  setHot([`agent:${agent.id}`, `dept:${agent.dept}`]);
+  conStatus(statusText, true);
+  const r = await streamChat(effModelId(agent), `${systemFor(agent, null)}\n\n${NOTE_RULES}`,
+    [{ role: "user", content: `${ask}\n\nExisting notes you may link to: ${titles.map((t) => `[[${t}]]`).join(", ") || "(none yet)"}\n\nReply in exactly this format and nothing else:\nTITLE: <short title, no : / ? # characters>\nTAGS: <3 to 5 lowercase tags, comma separated>\n---\n<the note body>` }],
+    con.ac?.signal, () => {}, { fallback: agent.fallback });
+  if (r.error) throw new Error(r.error);
+  return parseNoteReply(r.text, fallbackTitle);
+}
+
+// "save this to my notes", "make a note about ...", "note this"
+async function noteCommand(q) {
+  const saveRe = /^(?:please\s+)?(?:can you\s+|could you\s+)?(?:save|add|put|store|keep|copy|send)\s+(?:this|that|it|the (?:last )?answer|this answer|that answer)(?:\s+(?:to|in|into|as)\s+(?:a\s+)?(?:my\s+)?(?:notes?|obsidian|vault))?\s*[.!?]*$|^(?:note this|save (?:to|in) (?:my )?(?:notes|obsidian|vault))\s*[.!?]*$/i;
+  const makeRe = /^(?:please\s+)?(?:can you\s+|could you\s+)?(?:make|write|create|start|add)\s+(?:me\s+)?(?:a|an)?\s*(?:new\s+)?(?:obsidian\s+)?note\s+(?:about|on|for|of)\s+([\s\S]+?)\s*[.!?]*$/i;
+  const saving = saveRe.test(q) && /note|obsidian|vault|^save this$|^save that$|note this/i.test(q);
+  const mk = q.match(makeRe);
+  if (!saving && !mk) return false;
+  const writer = idx.agent.docs || idx.agent.writer || D.agents.find((a) => a.dept === "chat");
+  con.busy = true; con.ac = new AbortController();
+  try {
+    if (saving) {
+      const items = session.items, oi = items.map((i, k) => [i, k]).reverse().find(([i]) => i.k === "out" && i.text && !i.error);
+      if (!oi) { conLine("There's no answer in this chat to save yet. Ask something first, then say <b>save this to my notes</b>.", "sys"); return true; }
+      const [out, at] = oi;
+      const question = [...items.slice(0, at)].reverse().find((i) => i.k === "cmd" && !/^(save|note|remember|forget)/i.test(i.text || ""))?.text || out.text.slice(0, 80);
+      const note = await writeNote(writer, `Turn this question and answer into a clean, reusable note.\n\nQuestion: ${question}\n\nAnswer:\n${out.text.slice(0, 9000)}`, question.slice(0, 70), `${writer.name} writing note…`);
+      if (out.sources?.length) note.body += `\n\n## Sources\n${out.sources.map((x) => `- [${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join("\n")}`;
+      const r = await jfetch("/api/vault/note", { method: "POST", body: JSON.stringify({ ...note, key: question, source: "nexus-hq answer" }) });
+      conLine(noteCard(r, note), "sys ok");
+    } else {
+      const topic = mk[1].trim();
+      // "make a note about my X repo" -> the repo's note in Repos/ (overview kept, change log untouched)
+      const repoName = ghEnabled() ? (await knownRepo((topic.match(/\b([\w.-]+)\s+repo\b/i) || [])[1]) || (await ghIntent(topic))?.repo) : null;
+      if (repoName && /\brepo\b/i.test(topic)) {
+        conLine(`📦 reading <b>${esc(repoName)}</b> from GitHub…`, "sys");
+        const snap = await jfetch(`/api/github/snapshot?repo=${encodeURIComponent(repoName)}&budget=16000`);
+        const note = await writeNote(writer, `Write the "Overview" section of a note about the GitHub repository ${snap.repo}: what it is, how it's organized (key folders and files), how to run or use it, and its current state. Base it only on these files.\n\nAll files:\n${snap.paths.slice(0, 150).join("\n")}\n\n${snap.files.map((f) => `--- ${f.path} ---\n${f.text.slice(0, 3000)}`).join("\n\n")}`, repoName, `${writer.name} writing repo note…`);
+        const overview = note.body.replace(/^#\s.*\n+/, "").replace(/^##\s+Overview\s*\n+/i, "");
+        const r = await jfetch("/api/vault/repo", { method: "POST", body: JSON.stringify({ repo: snap.repo, url: snap.url, overview }) });
+        conLine(noteCard({ ...r, mode: "updated" }, note, `<br><span class="dim">One note per repo: the overview is refreshed and the merge log is kept.</span>`), "sys ok");
+      } else {
+        const ctxNotes = await vaultContext(topic);
+        const recent = contextTurns(6000, 4).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
+        const note = await writeNote(writer, `Write a note about: ${topic}\n\n${ctxNotes.text}${recent ? `Recent conversation (use it if it's about this topic):\n${recent.slice(-5000)}\n\n` : ""}If you aren't sure of a fact, leave it out or mark it with a [!question] callout.`, topic.slice(0, 70), `${writer.name} writing note…`);
+        const r = await jfetch("/api/vault/note", { method: "POST", body: JSON.stringify({ ...note, key: `note about ${topic}`, source: "nexus-hq note" }) });
+        conLine(noteCard(r, note), "sys ok");
+      }
+    }
+    D.vault.notes = (await jfetch("/api/vault")).notes.length;
+  } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
+  finally { con.busy = false; con.ac = null; setHot([]); conStatus("idle"); }
+  return true;
 }
 
 // ----- long-term memory -----
@@ -1857,7 +1960,7 @@ document.addEventListener("click", async (e) => {
     const host = g.closest(".out"), it = host?._item; if (!it) return;
     g.disabled = true; g.textContent = "Merging…";
     try {
-      const r = await jfetch("/api/github/merge", { method: "POST", body: JSON.stringify({ repo: it.repo, number: it.prNumber }) });
+      const r = await jfetch("/api/github/merge", { method: "POST", body: JSON.stringify({ repo: it.repo, number: it.prNumber, title: it.title }) });
       if (!r.merged) throw new Error("GitHub didn't merge it. Open the pull request to see why.");
       it.merged = true; host.innerHTML = prCardHTML(it); saveSession();
       conLine(`✓ Merged into <b>${esc(it.repo)}</b>. The change is live on GitHub.`, "sys ok");

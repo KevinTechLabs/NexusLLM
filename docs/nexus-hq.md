@@ -43,6 +43,16 @@ iPhone (Home Screen app) → Tailscale → Nexus-Ai:3100 → Nexus HQ (Node)
 
 Commits are always authored as the token owner with their `users.noreply.github.com` address. Co-author and AI credit trailers are removed from commit messages, PR titles and PR bodies, so the repo only ever lists the owner as a contributor.
 
+## Obsidian vault
+
+| Item | Value |
+|---|---|
+| Location | `~/Documents/NexusVault` (`VAULT_DIR` in `.env`) |
+| Folders | `Notes/` (saved answers and topics), `Repos/` (one note per repo: overview + merge log), `Private/` (never read by agents) |
+| Memory | `Memory.md`, one fact per line, editable in Obsidian |
+| Search | Local keyword ranking (BM25) over titles, tags and text; top 3 notes go to the agent |
+| Duplicates | Same question, topic or title updates the existing note |
+
 ## Operations
 
 ```bash

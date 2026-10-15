@@ -26,6 +26,14 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   The header shows spend. Turn Opus off with `/opus off` or the Opus chip, and its agents fall back to the local models. The server enforces this, so it costs $0 while off.
 - **GitHub:** connected automatically at startup (the header shows a GitHub chip, and warns 14 days before the token expires). Just ask in plain words: *"read my NexusLLM repo"*, *"add a FAQ to my NexusLLM repo"*, *"show my repos"*. The repo you last used is remembered, so *"add a section about X to my repo"* works too. Slash commands still work: `/repo NexusLLM`, then `/update what to change`. Builder makes small, targeted edits (even inside big files), Reviewer checks them, and you get a diff → **Open pull request** → **Merge now**, all from the console. Nothing is written until you click.
 - **Memory:** say *"remember that my main repo is NexusLLM"* or *"remember that I prefer short answers"*. Every agent sees these facts in every chat, on every device. *"what do you remember"* lists them, and *"forget 2"* (or *"forget the one about tables"*) removes one. Stored in `data/memory.json`, never committed. Within a chat, follow-ups like *"add a license section to it"* go to the repo you were just working on.
+- **Obsidian vault (notes):** a **Vault** tab with an animated graph of your notes and their `[[links]]`, a reader that shows Obsidian callouts, highlights, tags and backlinks, search and tag filters, and your memory list.
+  - Say *"save this to my notes"* after an answer, or *"make a note about docker networking"*.
+  - Saving the same question or topic again **updates the existing note** instead of making a duplicate.
+  - *"make a note about my NexusLLM repo"* writes that repo's overview into `Repos/NexusLLM.md`, and every **Merge now** adds a line to its change log.
+  - When you ask something, Nexus HQ finds your most relevant notes and gives them to the agent (you'll see "📓 using a note from your vault").
+  - `Private/` is never searched, never shown to agents and never sent to Opus.
+  - Remembered facts live in `Memory.md`, so you can edit them in Obsidian too.
+  - Note-writing rules are adapted from [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) (MIT).
 - **You're the only contributor:** every commit is authored by you with your private GitHub email, and any "Co-authored-by" or AI credit line is stripped from commit messages and pull requests automatically.
 - **Projects:** `/project new name`, **Save** buttons on code blocks (or `/save`), `/files`, and `/publish repo`. An empty repo gets an initial commit; a repo with code gets a pull request.
 - **Login screen:** themed, with logout. The password is checked server-side with a timing-safe comparison.
@@ -104,6 +112,14 @@ show my repos                                    list them
 ```
 
 Tips: name the file and section in `/update` for the best results. `/update` refuses unsafe edits (text it can't find, files it can't fully read, or edits that would delete most of a file).
+
+### Obsidian vault
+
+Nexus HQ creates the vault on first start: a `NexusVault` folder next to the `nexus-hq` folder (`~/Documents/NexusVault`), containing `Notes/`, `Repos/`, `Private/`, `Memory.md` and `Welcome.md`. To move it, set `VAULT_DIR=/path` in `.env`; `VAULT_DIR=off` turns notes off.
+
+- **On the PC:** install Obsidian, choose **Open folder as vault**, and pick `~/Documents/NexusVault`.
+- **On your phone:** sync the folder with Syncthing (free) or Obsidian Sync. Don't put the vault in a public GitHub repo.
+- If Obsidian can't save changes, the folder is owned by root: `sudo chown -R $USER:$USER ~/Documents/NexusVault`.
 
 ### Claude Opus (optional, paid)
 
