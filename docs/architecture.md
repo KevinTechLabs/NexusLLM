@@ -12,6 +12,7 @@ NexusLLM is a dedicated local AI server integrated with an existing homelab mana
 - Dedicated AI server
 - Ollama
 - Open WebUI
+- Nexus HQ (port 3100)
 - NVIDIA GPU
 - Tailscale
 - Docker
@@ -40,6 +41,12 @@ NexusLLM is a dedicated local AI server integrated with an existing homelab mana
 ### Knowledge retrieval
 
 `Open WebUI → nomic-embed-text → Nexus Homelab Knowledge Base`
+
+### Nexus HQ
+
+`iPhone → Tailscale → Nexus-Ai:3100 → Nexus HQ → Ollama:11434 (Gemma 4 12B / Qwen3-Coder 30B)`
+
+Optional: `Nexus HQ → Anthropic API` (budget-capped Opus) and `Nexus HQ → GitHub API` (pull requests). Web search: `Nexus HQ → SearXNG 127.0.0.1:8888`.
 
 ### Management
 

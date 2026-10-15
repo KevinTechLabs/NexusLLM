@@ -4,6 +4,8 @@
 
 Do not commit credentials, tokens, webhook URLs, private keys, passwords, or API keys.
 
+Nexus HQ keeps its password, API keys and GitHub token in `apps/nexus-hq/.env`, and its chats and spend data in `apps/nexus-hq/data/`. Both are git-ignored. Use a fine-grained GitHub token limited to Contents and Pull requests, and rotate it if it is ever exposed.
+
 ## Network
 
 Nexus-Ai is intended to remain private on the LAN and through Tailscale.

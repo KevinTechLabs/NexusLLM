@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-title" content="Nexus HQ">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=2">
+<title>Compare · Nexus HQ</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#161920; --panel2:#1d2129; --line:#2a2f3a; --text:#e7e9ee; --muted:#8b93a3;
+  --accent:#8ab4ff; --accent-ink:#0f1115; --danger:#ff6b6b; --ok:#3ecf8e; --radius:14px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: light){
+  :root{--bg:#f4f5f7;--panel:#ffffff;--panel2:#f0f2f5;--line:#dfe3ea;--text:#16181d;--muted:#667085;--accent:#2f6fed;--accent-ink:#fff}
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+
+header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top) + 10px) 12px 8px;border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
+.chips{display:flex;gap:6px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px 0}
+.chips::-webkit-scrollbar{display:none}
+.chip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 10px;font-size:13px;white-space:nowrap}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.chip.off{opacity:.45}
+.chip.off .dot{background:transparent;border:1.5px solid var(--c)}
+.iconbtn{border:1px solid var(--line);background:var(--panel);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;flex:none}
+
+#panels{flex:1;display:flex;gap:10px;padding:10px;overflow-x:auto;scroll-snap-type:x mandatory;min-height:0}
+.panel{flex:0 0 calc(100% - 20px);scroll-snap-align:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  display:flex;flex-direction:column;min-height:0;overflow:hidden}
+@media (min-width:900px){
+  #panels{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));overflow:hidden}
+  .panel{flex:none}
+}
+.phead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.phead .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.phead .name{font-weight:650}
+.phead .mid{font-size:12px;color:var(--muted);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phead .state{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+.phead .state.bad{color:var(--danger)}
+.msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch}
+.empty{margin:auto;color:var(--muted);text-align:center;font-size:14px;padding:20px}
+.msg.user{align-self:flex-end;background:var(--panel2);border-radius:14px 14px 4px 14px;padding:8px 12px;max-width:88%;white-space:pre-wrap;word-wrap:break-word}
+.msg.bot{word-wrap:break-word;overflow-wrap:anywhere}
+.msg.bot.err{color:var(--danger);font-size:14px}
+.msg.bot p{margin:0 0 .6em}
+.msg.bot p:last-child{margin-bottom:0}
+.msg.bot h3{font-size:1.05em;margin:.8em 0 .4em}
+.msg.bot ul,.msg.bot ol{margin:.3em 0 .6em;padding-left:1.3em}
+.msg.bot code{font-family:var(--mono);font-size:.88em;background:var(--panel2);padding:1px 5px;border-radius:5px}
+.msg.bot pre{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;overflow-x:auto;margin:.5em 0}
+.msg.bot pre code{background:none;padding:0;font-size:12.5px;line-height:1.45}
+.msg.bot pre .copy{position:absolute;top:6px;right:6px;font-size:11px;border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:2px 7px}
+.msg.bot a{color:var(--accent)}
+.msg.bot .tbl{overflow-x:auto;margin:.5em 0;border:1px solid var(--line);border-radius:10px}
+.msg.bot table{border-collapse:collapse;width:100%;font-size:13px}
+.msg.bot th,.msg.bot td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.msg.bot th{background:var(--panel2);font-weight:650;white-space:nowrap}
+.msg.bot tbody tr:last-child td{border-bottom:0}
+.msg.bot blockquote{margin:.5em 0;padding-left:10px;border-left:3px solid var(--line);color:var(--muted)}
+.msg.bot hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+.cursor::after{content:"▍";animation:blink 1s steps(2) infinite;color:var(--c)}
+@keyframes blink{50%{opacity:0}}
+.stats{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:6px}
+
+footer{border-top:1px solid var(--line);padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);background:var(--bg)}
+.composer{display:flex;gap:8px;align-items:flex-end}
+#input{flex:1;resize:none;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:14px;padding:10px 12px;
+  font-family:inherit;font-size:16px;line-height:1.4;max-height:160px;min-height:44px;outline:none}
+#input:focus{border-color:var(--accent)}
+#send{height:44px;min-width:64px;border:none;border-radius:14px;background:var(--accent);color:var(--accent-ink);font-weight:650;padding:0 14px}
+#send.stop{background:var(--danger);color:#fff}
+.hint{font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center}
+
+dialog{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:var(--radius);width:min(520px,calc(100% - 24px));padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h2{margin:0 0 10px;font-size:17px}
+dialog label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+dialog textarea,dialog input{width:100%;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:10px;padding:9px 10px;font-family:inherit;font-size:16px}
+dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+dialog .row button{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:8px 14px}
+dialog .row .primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+dialog .row .danger{color:var(--danger)}
+.statuslist{font-size:13px;margin-top:6px}
+.statuslist div{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+.statuslist .bad{color:var(--danger);text-align:right} .statuslist .good{color:var(--ok)}
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/" style="color:inherit;text-decoration:none">← Nexus HQ</a> · Compare</h1>
+  <div class="chips" id="chips"></div>
+  <button class="iconbtn" id="settingsBtn" aria-label="Settings">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2.3" fill="var(--panel)"/><circle cx="15" cy="17" r="2.3" fill="var(--panel)"/></svg>
+  </button>
+</header>
+
+<main id="panels"></main>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Ask all active models…"></textarea>
+    <button id="send">Send</button>
+  </div>
+  <div class="hint" id="hint"></div>
+</footer>
+
+<dialog id="settings">
+  <h2>Settings</h2>
+  <label for="system">System prompt (sent to every model)</label>
+  <textarea id="system" rows="4" placeholder="e.g. You are a concise senior engineer."></textarea>
+  <label for="pw">Dashboard password (only if you set one in .env)</label>
+  <input id="pw" type="password" autocomplete="current-password">
+  <label>Model status</label>
+  <div class="statuslist" id="statuslist">Loading…</div>
+  <div class="row">
+    <button class="danger" id="clearBtn">Clear all chats</button>
+    <button id="refreshBtn">Recheck</button>
+    <button class="primary" id="closeBtn">Done</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+let models = [];
+let active = store.get("active", null);
+let chats = store.get("chats", {});
+const running = new Map();
+
+$("#system").value = store.get("system", "");
+$("#pw").value = store.get("pw", "");
+
+// ---------- small, safe markdown ----------
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function inline(s) {
+  return s
+    .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function md(src) {
+  let html = "";
+  const isSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l) && l.includes("-");
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l) || (l.split("|").length > 2 && !/^\s*[-*+]\s/.test(l));
+  const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  String(src || "").split("```").forEach((part, i) => {
+    if (i % 2 === 1) {
+      const nl = part.indexOf("\n");
+      const code = nl === -1 ? part : part.slice(nl + 1);
+      html += `<pre><button class="copy">Copy</button><code>${esc(code.replace(/\n$/, ""))}</code></pre>`;
+      return;
+    }
+    let list = null, para = [], quote = [];
+    const fp = () => { if (para.length) { html += `<p>${inline(para.join("<br>"))}</p>`; para = []; } };
+    const fl = () => { if (list) { html += `</${list}>`; list = null; } };
+    const fq = () => { if (quote.length) { html += `<blockquote>${inline(quote.join("<br>"))}</blockquote>`; quote = []; } };
+    const flush = () => { fp(); fl(); fq(); };
+    const lines = esc(part).split("\n");
+    for (let n = 0; n < lines.length; n++) {
+      const line = lines[n];
+      let m;
+      // table: header row followed by a --- separator row
+      if (isRow(line) && n + 1 < lines.length && isSep(lines[n + 1])) {
+        flush();
+        const head = cells(line);
+        const align = cells(lines[n + 1]).map((c) => (/^:-+:$/.test(c) ? "center" : /-+:$/.test(c) ? "right" : "left"));
+        const rows = [];
+        n += 2;
+        while (n < lines.length && lines[n].trim() && isRow(lines[n]) && !isSep(lines[n])) rows.push(cells(lines[n++]));
+        n--;
+        const th = head.map((c, k) => `<th style="text-align:${align[k] || "left"}">${inline(c)}</th>`).join("");
+        const tb = rows.map((r) => `<tr>${head.map((_, k) => `<td style="text-align:${align[k] || "left"}">${inline(r[k] ?? "")}</td>`).join("")}</tr>`).join("");
+        html += `<div class="tbl"><table><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`;
+      }
+      else if ((m = line.match(/^#{1,6}\s+(.*)/))) { flush(); html += `<h3>${inline(m[1])}</h3>`; }
+      else if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); html += "<hr>"; }
+      else if ((m = line.match(/^\s*&gt;\s?(.*)/))) { fp(); fl(); quote.push(m[1]); }
+      else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { fp(); fq(); if (list !== "ul") { fl(); html += "<ul>"; list = "ul"; } html += `<li>${inline(m[1])}</li>`; }
+      else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { fp(); fq(); if (list !== "ol") { fl(); html += "<ol>"; list = "ol"; } html += `<li>${inline(m[1])}</li>`; }
+      else if (!line.trim()) flush();
+      else { fl(); fq(); para.push(line); }
+    }
+    flush();
+  });
+  return html;
+}
+
+// ---------- api ----------
+function headers() {
+  const h = { "Content-Type": "application/json" };
+  const pw = store.get("pw", "");
+  if (pw) h["x-dashboard-password"] = pw;
+  try { const t = localStorage.getItem("hq.token"); if (t) h["x-nhq-token"] = t; } catch {}
+  return h;
+}
+async function loadModels() {
+  let r;
+  try { r = await fetch("/api/models", { headers: headers() }); }
+  catch { $("#statuslist").innerHTML = '<div class="bad">Can\'t reach the server.</div>'; return false; }
+  if (r.status === 401) { $("#statuslist").innerHTML = '<div class="bad">Password required — enter it above, then Recheck.</div>'; openSettings(); return false; }
+  models = (await r.json()).models;
+  if (!active) active = models.map((m) => m.id);
+  renderStatus();
+  return true;
+}
+
+// ---------- render ----------
+function renderChips() {
+  $("#chips").innerHTML = models.map((m) =>
+    `<button class="chip ${active.includes(m.id) ? "" : "off"}" data-id="${m.id}" style="--c:${m.color}"><span class="dot"></span>${esc(m.label)}</button>`
+  ).join("");
+}
+function renderStatus() {
+  $("#statuslist").innerHTML = models.map((m) =>
+    `<div><span>${esc(m.label)} <span style="color:var(--muted);font-family:var(--mono);font-size:12px">${esc(m.model)}</span></span>
+     <span class="${m.ready ? "good" : "bad"}">${m.ready ? "Ready" : esc(m.note)}</span></div>`).join("");
+}
+function statsLine(s) {
+  if (!s) return "";
+  const b = [];
+  if (s.ttft != null) b.push(`first ${(s.ttft / 1000).toFixed(1)}s`);
+  if (s.ms != null) b.push(`total ${(s.ms / 1000).toFixed(1)}s`);
+  if (s.input != null) b.push(`in ${s.input}`);
+  if (s.output != null) b.push(`out ${s.output}`);
+  if (s.output && s.ms && s.ttft != null && s.ms - s.ttft > 200) b.push(`${Math.round(s.output / ((s.ms - s.ttft) / 1000))} tok/s`);
+  return b.length ? `<div class="stats">${b.map((x) => `<span>${x}</span>`).join("")}</div>` : "";
+}
+function msgHTML(msg, streaming) {
+  if (msg.role === "user") return `<div class="msg user">${esc(msg.content)}</div>`;
+  if (msg.error) return `<div class="msg bot err">⚠ ${esc(msg.error)}</div>`;
+  return `<div class="msg bot ${streaming ? "cursor" : ""}">${md(msg.content || "")}${streaming ? "" : statsLine(msg.stats)}</div>`;
+}
+function renderPanels() {
+  const shown = models.filter((m) => active.includes(m.id));
+  const el = $("#panels");
+  el.style.setProperty("--n", Math.max(shown.length, 1));
+  el.innerHTML = shown.length ? shown.map((m) => `
+    <section class="panel" id="p-${m.id}" style="--c:${m.color}">
+      <div class="phead"><span class="dot"></span>
+        <div style="min-width:0"><div class="name">${esc(m.label)}</div><div class="mid">${esc(m.model)}</div></div>
+        <span class="state ${m.ready ? "" : "bad"}" id="s-${m.id}">${running.has(m.id) ? "writing…" : m.ready ? "" : esc(m.note)}</span>
+      </div>
+      <div class="msgs" id="m-${m.id}"></div>
+    </section>`).join("") : `<div class="empty" style="width:100%">Turn on a model above.</div>`;
+  shown.forEach((m) => renderMsgs(m.id, running.has(m.id)));
+}
+function renderMsgs(id, streaming = false) {
+  const box = $(`#m-${id}`);
+  if (!box) return;
+  const list = chats[id] || [];
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  box.innerHTML = list.length
+    ? list.map((m, i) => msgHTML(m, streaming && i === list.length - 1)).join("")
+    : `<div class="empty">No messages yet.</div>`;
+  if (nearBottom || !streaming) box.scrollTop = box.scrollHeight;
+}
+const setState = (id, text, bad) => { const s = $(`#s-${id}`); if (s) { s.textContent = text; s.classList.toggle("bad", !!bad); } };
+
+// ---------- chat ----------
+async function ask(id, text) {
+  const hist = (chats[id] ||= []);
+  hist.push({ role: "user", content: text });
+  const reply = { role: "assistant", content: "" };
+  hist.push(reply);
+  // send only clean user/assistant pairs (skip failed turns)
+  const payload = [];
+  for (let i = 0; i < hist.length - 1; i++) {
+    const m = hist[i];
+    if (m.role === "user" && hist[i + 1]?.error) { i++; continue; }
+    if (!m.error) payload.push({ role: m.role, content: m.content });
+  }
+  const ac = new AbortController();
+  running.set(id, ac);
+  updateSend();
+  setState(id, "thinking…");
+  renderMsgs(id, true);
+
+  let raf = null;
+  const paint = () => { raf = null; renderMsgs(id, true); };
+  const stats = {};
+  try {
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal: ac.signal,
+      body: JSON.stringify({ model: id, messages: payload, system: store.get("system", "") }) });
+    if (!r.ok) throw new Error(r.status === 401 ? "Password required (open Settings)" : `Server error ${r.status}`);
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === "delta") { reply.content += ev.text; setState(id, "writing…"); if (!raf) raf = requestAnimationFrame(paint); }
+        else if (ev.type === "usage") { stats.input = ev.input; stats.output = ev.output; }
+        else if (ev.type === "done") { stats.ms = ev.ms; stats.ttft = ev.ttft; }
+        else if (ev.type === "error") reply.error = ev.message;
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") { if (!reply.content) reply.error = "Stopped."; }
+    else reply.error = e.message;
+  }
+  if (raf) cancelAnimationFrame(raf);
+  if (!reply.error && !reply.content) reply.error = "Empty response.";
+  reply.stats = stats;
+  running.delete(id);
+  setState(id, reply.error ? "error" : "", !!reply.error);
+  renderMsgs(id);
+  store.set("chats", chats);
+  updateSend();
+}
+
+function send() {
+  if (running.size) { running.forEach((ac) => ac.abort()); return; }
+  const text = $("#input").value.trim();
+  if (!text) return;
+  const targets = active.filter((id) => models.some((m) => m.id === id));
+  if (!targets.length) return;
+  $("#input").value = ""; autosize();
+  targets.forEach((id) => ask(id, text));
+}
+function updateSend() {
+  const b = $("#send");
+  b.textContent = running.size ? "Stop" : "Send";
+  b.classList.toggle("stop", running.size > 0);
+}
+
+// ---------- ui ----------
+function autosize() { const t = $("#input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 160) + "px"; }
+$("#input").addEventListener("input", autosize);
+const touch = matchMedia("(pointer: coarse)").matches;
+$("#input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !touch) { e.preventDefault(); send(); } });
+$("#send").addEventListener("click", send);
+
+$("#chips").addEventListener("click", (e) => {
+  const c = e.target.closest(".chip"); if (!c) return;
+  const id = c.dataset.id;
+  if (active.includes(id)) {
+    const p = $(`#p-${id}`);
+    // on phones: first tap jumps to that model's panel, a second quick tap hides it
+    if (p && window.innerWidth < 900 && !c.dataset.armed) {
+      p.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      c.dataset.armed = "1"; setTimeout(() => delete c.dataset.armed, 1200);
+      return;
+    }
+    active = active.filter((x) => x !== id);
+  } else active = models.map((m) => m.id).filter((x) => x === id || active.includes(x));
+  store.set("active", active);
+  renderChips(); renderPanels();
+});
+
+$("#panels").addEventListener("click", (e) => {
+  const b = e.target.closest(".copy"); if (!b) return;
+  const text = b.nextElementSibling.textContent;
+  const done = () => { b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1200); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done);
+  else { const t = document.createElement("textarea"); t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); done(); }
+});
+
+function openSettings() { if (!$("#settings").open) $("#settings").showModal(); }
+async function reload() { if (await loadModels()) { renderChips(); renderPanels(); } }
+$("#settingsBtn").addEventListener("click", openSettings);
+$("#closeBtn").addEventListener("click", async () => {
+  store.set("system", $("#system").value); store.set("pw", $("#pw").value);
+  $("#settings").close(); reload();
+});
+$("#refreshBtn").addEventListener("click", () => { store.set("pw", $("#pw").value); reload(); });
+$("#clearBtn").addEventListener("click", () => {
+  if (!confirm("Clear every conversation?")) return;
+  running.forEach((ac) => ac.abort()); chats = {}; store.set("chats", chats); renderPanels();
+});
+
+$("#hint").textContent = window.innerWidth >= 900
+  ? "Enter to send · Shift+Enter for a new line · click a chip to show/hide a model"
+  : "Swipe to compare · tap a chip to jump, tap again to hide";
+
+reload();
+</script>
+</body>
+</html>

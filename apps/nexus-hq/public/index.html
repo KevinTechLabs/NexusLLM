@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#070b14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=2">
+<meta name="apple-mobile-web-app-title" content="Nexus HQ">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<title>Nexus HQ</title>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <div class="kicker">// agent operations</div>
+      <h1>NEXUS HQ<span class="caret"></span></h1>
+    </div>
+    <div class="stats" id="stats"></div>
+    <nav id="nav" aria-label="Views">
+      <button data-view="map">Map</button>
+      <button data-view="chat">Chat</button>
+      <button data-view="code">Coding</button>
+      <a href="/compare">Compare</a>
+    </nav>
+    <button id="logoutBtn" class="logout-btn" type="button" title="Log out" aria-label="Log out" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </header>
+
+  <div id="models" class="models"></div>
+
+  <main id="viewport">
+    <div id="stage"></div>
+    <div id="deptSwitch" class="dept-switch" hidden>
+      <button id="prevDept" aria-label="Previous department">‹</button>
+      <span id="deptName"></span>
+      <button id="nextDept" aria-label="Next department">›</button>
+    </div>
+  </main>
+
+  <section id="console" class="console" aria-label="Command console">
+    <div class="con-head" id="conHead">
+      <span class="kicker">// command console</span>
+      <span class="con-status" id="conStatus">idle</span>
+      <span class="con-title" id="conTitle"></span>
+      <div class="con-actions">
+        <button type="button" class="con-btn proj" id="conProject" data-con="files" title="Open project files" hidden></button>
+        <button type="button" class="con-btn" data-con="new" title="Start a new chat">+ New</button>
+        <button type="button" class="con-btn" data-con="chats" title="Saved chats">Chats</button>
+        <button type="button" class="con-btn icon" data-con="full" id="conFullBtn" aria-label="Full screen console" title="Full screen">⛶</button>
+        <button id="conToggle" class="con-btn icon" type="button" aria-label="Collapse console">▾</button>
+      </div>
+    </div>
+    <div class="con-body">
+      <div class="con-log" id="conLog" aria-live="polite"></div>
+      <div class="con-drawer" id="conDrawer" hidden>
+        <div class="dr-head"><b>Saved chats</b><span class="dim">shared by every device</span>
+          <button type="button" class="con-btn" data-con="new">+ New chat</button>
+          <button type="button" class="con-btn icon" data-con="close-drawer" aria-label="Close saved chats">✕</button></div>
+        <div class="dr-list" id="conList"></div>
+      </div>
+    </div>
+    <form class="con-input" id="conForm" autocomplete="off">
+      <button type="button" id="conWeb" class="con-web" data-con="web">WEB</button>
+      <span class="prompt">nexus@hq:~$</span>
+      <input id="conInput" enterkeyhint="send" spellcheck="false" placeholder="ask anything… HQ picks the agent (/help)">
+      <button id="conRun" class="btn primary" type="submit">Run</button>
+    </form>
+  </section>
+
+  <div class="panel-clip">
+    <aside id="panel" aria-hidden="true">
+      <div class="panel-frame" id="panelBody"></div>
+    </aside>
+  </div>
+  <div id="scrim"></div>
+</div>
+
+<div id="login" class="login" hidden>
+  <div class="login-card" role="dialog" aria-labelledby="loginTitle">
+    <div class="kicker">// secure uplink</div>
+    <h1 id="loginTitle">NEXUS HQ<span class="caret"></span></h1>
+    <div class="login-sub">agent operations · restricted access</div>
+    <form id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="nexus" autocomplete="username" hidden>
+      <label for="loginPw">Access key</label>
+      <div class="login-field"><span aria-hidden="true">&gt;</span>
+        <input id="loginPw" type="password" name="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="enter password">
+      </div>
+      <button id="loginBtn" class="login-btn" type="submit">Authenticate</button>
+    </form>
+    <div class="login-log" id="loginLog" aria-live="polite"></div>
+  </div>
+  <div class="login-foot">private network · this device stays signed in</div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

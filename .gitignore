@@ -13,3 +13,8 @@ __pycache__/
 *.pyc
 .vscode/
 .idea/
+
+# Nexus HQ runtime data and local services
+apps/nexus-hq/data/
+apps/nexus-hq/searxng/
+node_modules/

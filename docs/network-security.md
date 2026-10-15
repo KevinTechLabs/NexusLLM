@@ -25,6 +25,7 @@ Desired policy:
 - Default routed: deny
 - LAN `192.0.2.0/24`: allowed
 - Tailscale interface `tailscale0`: allowed
+- Nexus HQ TCP/3100: LAN and `tailscale0` only (`sudo ufw allow in on tailscale0 to any port 3100`)
 
 Useful command:
 

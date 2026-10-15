@@ -1,0 +1,513 @@
+{
+  "_readme": "Edit this file to change departments, agents and tasks. The server re-reads it on every page load, so just refresh. Model ids: gemma, qwencoder, opus, gpt (opus/gpt need an API key in .env). 'fallback' is the model an agent uses when its own isn't available (no key, or Opus is over today's budget). Tasks with \"manual\": true are never picked automatically. Task status: autonomous | assisted | human-led | building. 'style' is the house style added to every agent's instructions: 'all' for everyone, plus 'chat' or 'code' by department.",
+  "style": {
+    "all": "How to write every answer:\n- Lead with the answer or result in the first sentence. No preamble (\"Great question\", \"Sure!\", \"As an AI\") and don't restate the question.\n- Write like a sharp, friendly senior colleague: plain words, specific details, confident, and honest about uncertainty. Say you're not sure rather than guess, and never invent facts, numbers, names or sources.\n- Match length to the question. A simple question gets a few sentences; a complex one gets structure.\n- Use Markdown only where it helps someone scan: a short **bold** lead-in, bullet lists for parallel items, numbered steps for procedures, and a table when comparing options on the same attributes. Use ### headings only for long answers with distinct sections. Don't bold random phrases.\n- Use a Markdown table on your own, without being asked, whenever it makes the answer easier to read: comparing two or more things (products, options, tools, languages, plans), listing specs or prices, pros and cons, or any set of items that share the same attributes. Format: a header row, a separator row like | --- | --- |, then one row per attribute. Put the things being compared as columns and the attributes as rows, keep cells short (numbers with units), and follow the table with one or two sentences saying which to pick and why. Don't force a table onto a simple answer, a single item, a story or step-by-step instructions. Only include figures you're confident about; mark estimates with ~ and write \"not sure\" rather than guessing.\n- Explain reasoning in prose; don't chop every thought into bullets.\n- When recommending, give the recommendation plus the one or two factors that would change it (for example a short \"How to choose\" list).\n- Stop when the answer is complete. No recap of what you just said, no \"let me know if you need anything else\". Offer at most one genuinely useful next step.",
+    "chat": "",
+    "code": "How to write code answers:\n- Open with one sentence saying what the code does or what the fix is.\n- Give complete, runnable code in a fenced block tagged with its language. When the code belongs in a file, put its path after the language on the fence line, like ```js src/app.js, so it can be saved straight into the project. No placeholders like \"...\" or \"# rest of code here\" unless the user asked for a snippet.\n- Follow the language's conventions: clear names, small functions, realistic error handling for bad input, no dead code or unused imports.\n- Comments explain why, not what, and stay sparse. Use a docstring or header comment for anything public.\n- When changing existing code, show only the changed parts, say exactly where they go, and keep everything else as it was.\n- After the code: a short \"How to run\" with the commands in a code block, then at most three bullets on key decisions or caveats.\n- Never invent APIs, flags or library functions. If you're unsure something exists, say so and give the safe alternative."
+  },
+  "departments": [
+    {
+      "id": "chat",
+      "name": "Chat",
+      "color": "#36e2c8",
+      "blurb": "Everyday assistants: answers, writing, thinking things through."
+    },
+    {
+      "id": "code",
+      "name": "Coding",
+      "color": "#a57cff",
+      "blurb": "Plan, write, test, debug, review and document code."
+    }
+  ],
+  "agents": [
+    {
+      "id": "concierge",
+      "name": "Concierge",
+      "dept": "chat",
+      "model": "gemma",
+      "role": "Your default assistant for everyday questions and planning, running locally on Gemma 4 12B.",
+      "prompt": "You are Concierge, a warm, sharp everyday assistant. Answer directly first, then add only the detail that helps. Ask one clarifying question only when the request is genuinely ambiguous."
+    },
+    {
+      "id": "writer",
+      "name": "Writer",
+      "dept": "chat",
+      "model": "gemma",
+      "role": "Drafts and rewrites emails, messages and posts in your voice.",
+      "prompt": "You are Writer, an editor who writes plainly and specifically. Match the requested tone and channel. No filler, no clichés, no exclamation marks unless asked. Return the draft first; add at most one line of notes after it."
+    },
+    {
+      "id": "explainer",
+      "name": "Explainer",
+      "dept": "chat",
+      "model": "gemma",
+      "role": "Explains topics simply and helps you weigh decisions.",
+      "prompt": "You are Explainer. Teach with concrete examples and analogies, building from what a smart non-expert already knows. When comparing options, lay out the trade-offs honestly and say what would change the answer."
+    },
+    {
+      "id": "private",
+      "name": "Private Helper",
+      "dept": "chat",
+      "model": "gemma",
+      "role": "Summarizes personal notes and answers quick questions. Like every agent here, it runs on your own computer.",
+      "prompt": "You are Private Helper, a concise assistant running locally. Be brief and practical. Never invent facts; say when you are unsure."
+    },
+    {
+      "id": "advisor",
+      "name": "Advisor",
+      "dept": "chat",
+      "model": "opus",
+      "fallback": "gemma",
+      "role": "Expert second opinion for hard questions on Claude Opus 5.5. Only runs when you ask for it with @opus.",
+      "prompt": "You are Advisor, a senior expert consulted for hard questions. Think carefully, then answer concisely: lead with the answer, give the key reasoning, and flag real risks or uncertainty. Stay under about 400 words unless the user asks for more."
+    },
+    {
+      "id": "architect",
+      "name": "Architect",
+      "dept": "code",
+      "model": "opus",
+      "role": "Turns a feature idea into a concrete, buildable plan. Runs on Claude Opus 5.5 (falls back to Qwen3-Coder 30B).",
+      "prompt": "You are Architect, a senior software engineer. Produce plans a mid-level developer could execute without asking questions: files to touch, data shapes, edge cases, and the order to build in. Prefer the simplest design that works. Keep plans tight: under about 400 words, numbered steps, no code beyond short signatures — the Builder writes the code.",
+      "fallback": "qwencoder"
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "dept": "code",
+      "model": "qwencoder",
+      "role": "Writes working code: functions, scripts, components, conversions.",
+      "prompt": "You are Builder, a pragmatic programmer. Output complete, runnable code in fenced blocks with the language named. Handle obvious edge cases. Keep explanation to a few lines after the code."
+    },
+    {
+      "id": "debugger",
+      "name": "Debugger",
+      "dept": "code",
+      "model": "qwencoder",
+      "role": "Finds the root cause of errors and proposes the smallest fix.",
+      "prompt": "You are Debugger. Read errors and code carefully, state the most likely root cause with your reasoning, give the minimal fix as a code block, and say how to confirm it worked. If information is missing, say exactly what to run to get it."
+    },
+    {
+      "id": "reviewer",
+      "name": "Reviewer",
+      "dept": "code",
+      "model": "opus",
+      "role": "Reviews code for bugs, security issues and maintainability. Runs on Claude Opus 5.5 (falls back to Qwen3-Coder 30B).",
+      "prompt": "You are Reviewer, a meticulous code reviewer. Report real problems only, ranked by severity: bugs, security, data loss, then maintainability. For each: where, what goes wrong with a concrete input, and the fix. Say plainly if the code looks good. Report at most the 8 most important issues, each in 1-3 lines with the fix. Don't rewrite whole files; show only the lines that change.",
+      "fallback": "qwencoder"
+    },
+    {
+      "id": "tester",
+      "name": "Test Writer",
+      "dept": "code",
+      "model": "qwencoder",
+      "role": "Writes unit tests that cover the happy path and the edges.",
+      "prompt": "You are Test Writer. Write focused unit tests using the project's likely framework (ask only if impossible to infer). Cover normal cases, edge cases and failure cases, one behaviour per test, with clear names."
+    },
+    {
+      "id": "docs",
+      "name": "Doc Writer",
+      "dept": "code",
+      "model": "gemma",
+      "role": "Writes READMEs, docstrings and code comments.",
+      "prompt": "You are Doc Writer. Write documentation that answers what it does, how to use it, and what to watch out for. Use short sections and real examples. Never describe code that is not shown."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "ask-anything",
+      "name": "Answer everyday questions",
+      "dept": "chat",
+      "agent": "concierge",
+      "status": "autonomous",
+      "replaces": "Twenty browser tabs and a vague sense you still didn't find the answer.",
+      "ladder": {
+        "led": "You search, skim and piece it together.",
+        "assisted": "It gives you an answer; you check the sources.",
+        "auto": "It answers directly and flags what it's unsure of."
+      },
+      "human": "You ask the question and decide what to do with the answer.",
+      "sop": [
+        "Restate the real question in one line",
+        "Answer it directly in the first sentence",
+        "Add only the detail that changes what you'd do",
+        "Flag anything uncertain or time-sensitive"
+      ],
+      "starters": [
+        "What's a good way to structure my week if I work from home?",
+        "How do index funds actually work?"
+      ]
+    },
+    {
+      "id": "draft-message",
+      "name": "Draft an email or message",
+      "dept": "chat",
+      "agent": "writer",
+      "status": "assisted",
+      "replaces": "Staring at a blank reply box for fifteen minutes.",
+      "ladder": {
+        "led": "You write it, rewrite it, and still hesitate to hit send.",
+        "assisted": "It drafts; you tweak a line and send.",
+        "auto": "It drafts from a one-line brief in your voice."
+      },
+      "human": "You say who it's for and what you want to happen. You send it.",
+      "sop": [
+        "Identify the reader, channel and goal",
+        "Lead with the ask or the news",
+        "Keep it as short as the situation allows",
+        "End with a clear next step"
+      ],
+      "starters": [
+        "Write a polite email declining a meeting but offering Thursday instead",
+        "Text my landlord that the sink is leaking again"
+      ]
+    },
+    {
+      "id": "tighten-text",
+      "name": "Rewrite and tighten text",
+      "dept": "chat",
+      "agent": "writer",
+      "status": "autonomous",
+      "replaces": "Line-editing your own writing at 11pm.",
+      "ladder": {
+        "led": "You cut words one pass at a time.",
+        "assisted": "It suggests edits; you accept the ones you like.",
+        "auto": "It returns a tighter version that keeps your meaning."
+      },
+      "human": "You paste the text and say the tone you want.",
+      "sop": [
+        "Keep the original meaning and facts",
+        "Cut filler and repetition",
+        "Prefer concrete words over abstract ones",
+        "Return the rewrite, then one line on what changed"
+      ],
+      "starters": [
+        "Make this more concise and confident: "
+      ]
+    },
+    {
+      "id": "explain-topic",
+      "name": "Explain a topic simply",
+      "dept": "chat",
+      "agent": "explainer",
+      "status": "autonomous",
+      "replaces": "Reading three articles that each assume you read the other two.",
+      "ladder": {
+        "led": "You piece it together from search results.",
+        "assisted": "It explains; you ask follow-ups until it clicks.",
+        "auto": "It explains at your level with an example that sticks."
+      },
+      "human": "You say what you already know and where you're stuck.",
+      "sop": [
+        "Start from what the reader already knows",
+        "Give the core idea in two sentences",
+        "Make it concrete with an example or analogy",
+        "Point out the most common misconception"
+      ],
+      "starters": [
+        "Explain how Tailscale works like I'm a smart 12-year-old",
+        "What is a vector database and when would I need one?"
+      ]
+    },
+    {
+      "id": "decide",
+      "name": "Weigh a decision",
+      "dept": "chat",
+      "agent": "explainer",
+      "status": "assisted",
+      "replaces": "Going in circles on a pros-and-cons list.",
+      "ladder": {
+        "led": "You list pros and cons and re-sort them daily.",
+        "assisted": "It lays out trade-offs; you make the call.",
+        "auto": "It recommends, with what would change its mind."
+      },
+      "human": "You bring the options and what matters to you. You decide.",
+      "sop": [
+        "Name the options and the criteria that matter",
+        "Compare them on each criterion honestly",
+        "Say what would make each option the right one",
+        "Give a lean, clearly labeled as a lean"
+      ],
+      "starters": [
+        "Should I buy a Mac Studio or build a PC to run local models?"
+      ]
+    },
+    {
+      "id": "private-summary",
+      "name": "Summarize private text",
+      "dept": "chat",
+      "agent": "private",
+      "status": "autonomous",
+      "replaces": "Pasting personal notes into an online service you'd rather not.",
+      "ladder": {
+        "led": "You reread the whole thing yourself.",
+        "assisted": "It summarizes; you skim to confirm.",
+        "auto": "It summarizes locally with nothing leaving your machine."
+      },
+      "human": "You paste the text. It never leaves your computer.",
+      "sop": [
+        "Read the whole text before summarizing",
+        "Pull out decisions, dates and action items",
+        "Keep names and numbers exactly as written",
+        "Say if anything looks missing or contradictory"
+      ],
+      "starters": [
+        "Summarize these notes into action items: "
+      ]
+    },
+    {
+      "id": "quick-answer",
+      "name": "Quick offline answers",
+      "dept": "chat",
+      "agent": "private",
+      "status": "autonomous",
+      "replaces": "Opening a browser tab for something a local model can answer in a second.",
+      "ladder": {
+        "led": "You look it up.",
+        "assisted": "It answers; you double-check anything important.",
+        "auto": "It answers instantly, for free, on your own hardware."
+      },
+      "human": "You ask. You verify anything that matters.",
+      "sop": [
+        "Answer in three sentences or fewer",
+        "Say 'not sure' instead of guessing",
+        "Suggest a better way to find out when it doesn't know"
+      ],
+      "starters": [
+        "Convert 350°F to Celsius",
+        "What's the difference between a Git merge and a rebase?"
+      ]
+    },
+    {
+      "id": "second-opinion",
+      "name": "Expert second opinion",
+      "dept": "chat",
+      "agent": "advisor",
+      "status": "assisted",
+      "manual": true,
+      "replaces": "Wondering whether the local model's answer is actually right.",
+      "ladder": {
+        "led": "You cross-check answers yourself.",
+        "assisted": "You ask Opus when it matters; it answers in a few cents.",
+        "auto": "HQ escalates hard questions to Opus on its own."
+      },
+      "human": "You decide when a question is worth a few cents. Type @opus before it.",
+      "sop": [
+        "Answer the actual question first",
+        "Give the key reasoning in a few lines",
+        "Flag real risks or uncertainty",
+        "Stay concise"
+      ],
+      "starters": [
+        "Is it worth upgrading my RTX 4070 for local AI, or should I wait?"
+      ]
+    },
+    {
+      "id": "ship-feature",
+      "name": "Ship a feature (pipeline)",
+      "dept": "code",
+      "agent": "architect",
+      "status": "assisted",
+      "chain": [
+        {
+          "agent": "architect",
+          "do": "Write a short implementation plan: files, data shapes, edge cases, build order."
+        },
+        {
+          "agent": "builder",
+          "do": "Implement the plan above. Output complete code."
+        },
+        {
+          "agent": "tester",
+          "do": "Write unit tests for the code above."
+        },
+        {
+          "agent": "reviewer",
+          "do": "Review the code and tests above. List real problems ranked by severity, then give a ship / fix-first verdict."
+        }
+      ],
+      "replaces": "Doing the plan, the code, the tests and the review yourself, one tab at a time.",
+      "ladder": {
+        "led": "You plan, code, test and review everything.",
+        "assisted": "Four agents hand off to each other; you read the verdict.",
+        "auto": "It opens a pull request and you approve it."
+      },
+      "human": "You describe the feature. You read the reviewer's verdict and decide whether to ship.",
+      "sop": [
+        "Architect writes the plan",
+        "Builder implements it",
+        "Test Writer covers it with tests",
+        "Reviewer checks everything and gives a verdict"
+      ],
+      "starters": [
+        "Add a /health endpoint to a Node http server that reports uptime and memory",
+        "A Python function that dedupes a CSV by email, keeping the newest row"
+      ]
+    },
+    {
+      "id": "plan-feature",
+      "name": "Plan a feature",
+      "dept": "code",
+      "agent": "architect",
+      "status": "assisted",
+      "replaces": "Starting to code and discovering the design halfway through.",
+      "ladder": {
+        "led": "You sketch it in your head and start typing.",
+        "assisted": "It writes the plan; you adjust and approve it.",
+        "auto": "It plans and hands straight to Builder."
+      },
+      "human": "You describe the goal and constraints. You approve the plan.",
+      "sop": [
+        "Restate the goal and constraints",
+        "List the files and components to touch",
+        "Define the data shapes and interfaces",
+        "Call out edge cases and risks",
+        "Give a build order in small, testable steps"
+      ],
+      "starters": [
+        "Plan adding user login to my Express app",
+        "Plan a chat history sidebar for my dashboard"
+      ]
+    },
+    {
+      "id": "write-code",
+      "name": "Write a function or script",
+      "dept": "code",
+      "agent": "builder",
+      "status": "autonomous",
+      "replaces": "Writing boilerplate and looking up syntax you've written a hundred times.",
+      "ladder": {
+        "led": "You write it line by line.",
+        "assisted": "It writes; you read and run it.",
+        "auto": "It writes, runs and fixes until the tests pass."
+      },
+      "human": "You say what it should do. You run it.",
+      "sop": [
+        "Confirm inputs, outputs and language",
+        "Write complete, runnable code",
+        "Handle the obvious edge cases",
+        "Show one usage example"
+      ],
+      "starters": [
+        "Bash script that backs up ~/Projects to an external drive, skipping node_modules",
+        "TypeScript debounce function with tests"
+      ]
+    },
+    {
+      "id": "convert-code",
+      "name": "Convert code between languages",
+      "dept": "code",
+      "agent": "builder",
+      "status": "autonomous",
+      "replaces": "Translating code by hand and missing the idioms.",
+      "ladder": {
+        "led": "You port it line by line.",
+        "assisted": "It ports; you test it.",
+        "auto": "It ports idiomatically and flags behaviour differences."
+      },
+      "human": "You paste the code and name the target language.",
+      "sop": [
+        "Read the whole source first",
+        "Port to idiomatic target-language code",
+        "Keep behaviour identical",
+        "List any behaviour that couldn't be kept identical"
+      ],
+      "starters": [
+        "Convert this Python to Go: "
+      ]
+    },
+    {
+      "id": "fix-error",
+      "name": "Fix an error",
+      "dept": "code",
+      "agent": "debugger",
+      "status": "assisted",
+      "replaces": "Pasting the stack trace into search and reading five unrelated answers.",
+      "ladder": {
+        "led": "You bisect, add prints and guess.",
+        "assisted": "It finds the likely cause; you apply the fix.",
+        "auto": "It reproduces, fixes and verifies on its own."
+      },
+      "human": "You paste the error and relevant code. You apply and confirm the fix.",
+      "sop": [
+        "Read the full error and stack trace",
+        "State the most likely root cause and why",
+        "Give the smallest fix that addresses it",
+        "Say how to confirm it's fixed"
+      ],
+      "starters": [
+        "TypeError: Cannot read properties of undefined (reading 'map') — here's my component: "
+      ]
+    },
+    {
+      "id": "review-code",
+      "name": "Review code for bugs",
+      "dept": "code",
+      "agent": "reviewer",
+      "status": "assisted",
+      "replaces": "Waiting a day for a teammate to look at your PR.",
+      "ladder": {
+        "led": "You re-read your own diff and miss the same things.",
+        "assisted": "It flags issues; you decide what to fix.",
+        "auto": "It reviews every commit and blocks real bugs."
+      },
+      "human": "You paste the diff. You decide what to change.",
+      "sop": [
+        "Read the whole change before commenting",
+        "Find bugs, security issues and data-loss risks first",
+        "Give a concrete failing input for each problem",
+        "Suggest the fix",
+        "Say plainly if it's good to merge"
+      ],
+      "starters": [
+        "Review this function: "
+      ]
+    },
+    {
+      "id": "write-tests",
+      "name": "Write unit tests",
+      "dept": "code",
+      "agent": "tester",
+      "status": "autonomous",
+      "replaces": "Skipping tests because writing them is tedious.",
+      "ladder": {
+        "led": "You write tests after the bug ships.",
+        "assisted": "It writes tests; you run them.",
+        "auto": "It writes and runs tests on every change."
+      },
+      "human": "You paste the code. You run the tests.",
+      "sop": [
+        "Infer the language and test framework",
+        "Test the happy path",
+        "Test edges: empty, huge, invalid input",
+        "Test failure paths and error messages",
+        "One behaviour per test, clearly named"
+      ],
+      "starters": [
+        "Write pytest tests for this function: "
+      ]
+    },
+    {
+      "id": "write-docs",
+      "name": "Write docs and comments",
+      "dept": "code",
+      "agent": "docs",
+      "status": "building",
+      "replaces": "The README that says 'TODO'.",
+      "ladder": {
+        "led": "You mean to write docs later.",
+        "assisted": "It drafts docs; you correct the details.",
+        "auto": "It keeps docs in sync with every change."
+      },
+      "human": "You paste the code or describe the project. You check it's accurate.",
+      "sop": [
+        "Say what it does in one sentence",
+        "Show how to install and run it",
+        "Give a real usage example",
+        "List gotchas and configuration"
+      ],
+      "starters": [
+        "Write a README for this script: "
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Nexus HQ agent dashboard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User and WorkingDirectory for your machine.
+User=kevin
+WorkingDirectory=/home/kevin/Documents/nexus-hq
+ExecStart=/usr/bin/env node server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

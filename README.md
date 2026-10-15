@@ -1,9 +1,9 @@
 # 🧠 NexusLLM
 
-> A self-hosted local AI platform and homelab environment built around **Ollama + Open WebUI + NVIDIA RTX 4070**, with private remote access, local RAG, monitoring, centralized Docker management, and a custom iPhone PWA.
+> A self-hosted local AI platform and homelab environment built around **Ollama + Open WebUI + NVIDIA RTX 4070**, with private remote access, local RAG, monitoring, centralized Docker management, a custom iPhone PWA, and **Nexus HQ**, an animated AI-agent dashboard.
 
 **Status:** 🟢 Operational  
-**Documentation snapshot:** September 21, 2026
+**Documentation snapshot:** October 13, 2026
 
 ---
 
@@ -24,6 +24,7 @@
 - 📊 **Uptime Kuma** — monitoring.
 - 🔔 **Discord Alerts** — private monitoring notifications.
 - ♻️ **Persistent Services** — restart policies and reboot-persistent firewall rules.
+- 🛰️ **Nexus HQ** — live agent map for Chat and Coding departments on Gemma 4 12B + Qwen3-Coder 30B, with a command console, saved chats, SearXNG web search with hover citations, GitHub reviews/pull requests, and an optional budget-capped Claude Opus 5.5 lead that can be switched off. See [docs/nexus-hq.md](docs/nexus-hq.md).
 
 ---
 
@@ -64,7 +65,12 @@ Nexus-Ai 192.0.2.10
     │                              ▼
     │                         RTX 4070
     │
-    └── :8081 → nexus-pwa → manifest + Nexus icon
+    ├── :8081 → nexus-pwa → manifest + Nexus icon
+    │
+    └── :3100 → Nexus HQ (Node, systemd)
+                   ├── Ollama :11434 (Gemma 4 12B, Qwen3-Coder 30B)
+                   ├── SearXNG 127.0.0.1:8888 (web search)
+                   └── optional: Anthropic API (Opus), GitHub API
 
 Existing Mini PC 192.0.2.20
     ├── Portainer :9443
@@ -97,6 +103,16 @@ Dedicated software-engineering assistant for programming, debugging, Docker, Lin
 - Top-p: **0.9**
 - Native function calling: enabled
 - Web Search: enabled
+
+## 🛰️ Nexus HQ agents
+
+| Model | Agents |
+|---|---|
+| `gemma4:12b` | Concierge, Writer, Explainer, Private Helper, Doc Writer |
+| `qwen3-coder:30b` | Builder, Debugger, Test Writer |
+| `claude-opus-5-5` (optional) | Advisor, Architect, Reviewer (fall back to local models when off) |
+
+Opus limits: **$10/month**, **$1/day**, 1500 max output tokens. When Opus is switched off it spends nothing.
 
 ## 📚 Embeddings
 
@@ -167,6 +183,8 @@ Nexus therefore uses Nginx on host port `3000` to:
 | Open WebUI | internal `:8080` | AI interface |
 | Ollama | `192.0.2.10:11434` | LLM API |
 | Nexus PWA | `192.0.2.10:8081` | Manifest/icon |
+| Nexus HQ | `192.0.2.10:3100` | Agent dashboard (systemd `nexus-hq`) |
+| SearXNG | `127.0.0.1:8888` (local only) | Private web search for Nexus HQ |
 | Portainer | `https://192.0.2.20:9443` | Docker management |
 | Uptime Kuma | `http://192.0.2.20:3001` | Monitoring |
 
@@ -197,7 +215,7 @@ Rules are persisted by:
 
 Remote access uses Tailscale. No public Internet exposure is intended.
 
-**Never commit:** passwords, API keys, Tailscale auth keys, Discord webhooks, Open WebUI secrets, SSH private keys, or tokens.
+**Never commit:** passwords, API keys, Tailscale auth keys, Discord webhooks, Open WebUI secrets, SSH private keys, GitHub tokens, Nexus HQ `.env`, or Nexus HQ `data/`.
 
 ---
 
@@ -239,6 +257,15 @@ sudo systemctl status portainer-firewall.service
 sudo systemctl is-enabled portainer-firewall.service
 ```
 
+### Nexus HQ
+
+```bash
+systemctl status nexus-hq
+journalctl -u nexus-hq -f
+sudo systemctl restart nexus-hq
+sudo docker ps --filter name=nexus-searxng
+```
+
 ### Tailscale
 
 ```bash
@@ -248,9 +275,9 @@ tailscale ip -4
 
 ---
 
-# 🛠️ Nexus HQ Troubleshooting
+# 🛠️ Nexus-Ai Server Troubleshooting
 
-This section provides common troubleshooting steps for the Nexus AI server from the perspective of a system administrator ("Nexus HQ").
+Common checks for the Nexus-Ai server (Ollama, Open WebUI, networking, Docker). For the Nexus HQ dashboard itself, see the Nexus HQ commands under Troubleshooting above and [docs/nexus-hq.md](docs/nexus-hq.md).
 
 ## General Checks
 
@@ -339,7 +366,17 @@ NexusLLM/
 │   ├── open-webui.md
 │   ├── iphone-pwa.md
 │   ├── portainer.md
-│   └── operations.md
+│   ├── operations.md
+│   └── nexus-hq.md
+├── apps/
+│   └── nexus-hq/          # Nexus HQ dashboard (Node.js, no dependencies)
+│       ├── server.js
+│       ├── agents.json
+│       ├── lib/github.js
+│       ├── public/
+│       ├── deploy/nexus-hq.service
+│       ├── setup-web-search.sh
+│       └── .env.example
 ├── deploy/
 │   ├── llm/
 │   │   ├── compose.yml
@@ -391,6 +428,7 @@ Always review configuration for the target machine before applying it.
 - [iPhone PWA](docs/iphone-pwa.md)
 - [Portainer](docs/portainer.md)
 - [Operations](docs/operations.md)
+- [Nexus HQ](docs/nexus-hq.md)
 
 ---
 
