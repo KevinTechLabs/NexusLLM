@@ -11,7 +11,7 @@
 
 - 🎯 **Dedicated AI Server** — Nexus-Ai, 24/7 local inference.
 - 🚀 **Local LLM Serving** — Ollama on the RTX 4070.
-- 🧠 **Nexus** — Qwen3 8B, 32K context.
+- 🧠 **Nexus** — Gemma 4 12B, 32K context.
 - 💻 **Nexus Coder** — Qwen3-Coder 30B, 16K context.
 - 📚 **Local RAG** — Open WebUI Knowledge Base + `nomic-embed-text`.
 - 🔎 **Web Search** — DuckDuckGo/DDGS configured in Open WebUI.
@@ -83,7 +83,7 @@ Existing Mini PC 192.0.2.20
 
 ## 🧠 Nexus
 
-**Base:** `qwen3:8b`
+**Base:** `gemma4:12b`
 
 General-purpose assistant for Linux, Docker, networking, homelab, self-hosting, general questions, Knowledge Base work, and web research.
 

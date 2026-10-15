@@ -26,7 +26,7 @@ A secret key is required through the environment. The real value is intentionall
 
 ### Nexus
 
-- Base model: `qwen3:8b`
+- Base model: `gemma4:12b`
 - General-purpose system prompt
 - Web Search enabled
 - Local Nexus Homelab Knowledge Base used when relevant

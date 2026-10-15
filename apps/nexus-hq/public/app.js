@@ -1603,8 +1603,21 @@ Output every file you change or create in full, exactly in this format and nothi
 Keep everything you aren't asked to change exactly as it was. Then, after the last file, one short paragraph explaining the change.`;
     const r = await work(builder, systemFor(builder, idx.task["write-code"]), [{ role: "user", content: ask }], signal);
     if (r.error) throw new Error(r.error);
-    const changes = parseFileBlocks(r.text).filter((c) => originals[c.path] !== c.content);
-    if (!changes.length) throw new Error("The Builder didn't produce any file changes in the expected format. Try rephrasing the request.");
+    // Safety: never let a change wipe out code the Builder couldn't fully see, or gut a file by accident.
+    const allowShrink = /\b(remove|delete|drop|shorten|trim|clean ?up|simplif|strip|cut)\b/i.test(instruction);
+    const blocked = [];
+    const changes = parseFileBlocks(r.text).filter((c) => {
+      if (originals[c.path] === c.content) return false;
+      if (originals[c.path] == null && snap.paths.includes(c.path)) { blocked.push(`${c.path} (too big to read in full, so it can't be safely rewritten)`); return false; }
+      const old = originals[c.path];
+      if (old != null && !allowShrink) {
+        const oldLines = old.split("\n").length, newLines = c.content.split("\n").length;
+        if (oldLines > 15 && newLines < oldLines * 0.6) { blocked.push(`${c.path} (would shrink from ${oldLines} to ${newLines} lines)`); return false; }
+      }
+      return true;
+    });
+    if (blocked.length) conLine(`⚠ Skipped unsafe edits: ${blocked.map((b) => `<b>${esc(b)}</b>`).join(", ")}. Nothing was sent for these files.`, "sys");
+    if (!changes.length) throw new Error(blocked.length ? "Every proposed edit was unsafe, so nothing was proposed. Try a more specific request, e.g. name the file and section." : "The Builder didn't produce any file changes in the expected format. Try rephrasing the request.");
     const files = changes.map((c) => ({ path: c.path, content: c.content, old: originals[c.path] ?? (snap.paths.includes(c.path) ? "" : null) }));
     // Show a short summary instead of the raw file dump; the diff card below has the details
     const bItem = [...session.items].reverse().find((i) => i.k === "out" && i.agent === builder.id);

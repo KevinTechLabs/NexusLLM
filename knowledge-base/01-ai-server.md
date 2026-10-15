@@ -25,7 +25,7 @@ NVIDIA Container Toolkit: 1.20.1
 Docker: 29.8.1
 
 Models:
-- qwen3:8b
+- gemma4:12b
 - qwen3-coder:30b
 - nomic-embed-text
 

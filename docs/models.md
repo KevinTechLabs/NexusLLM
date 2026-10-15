@@ -4,7 +4,7 @@
 
 Underlying Ollama model:
 
-`qwen3:8b`
+`gemma4:12b`
 
 Purpose:
 
@@ -66,7 +66,7 @@ This model is required for RAG and should remain installed.
 
 ## Performance Notes
 
-Qwen3 8B generally runs around the mid-80 token/sec range on short generation tests.
+Gemma 4 12B replaced Qwen3 8B as the general model (Open WebUI "Nexus" and the Nexus HQ chat agents). Qwen3 8B previously ran around the mid-80 token/sec range on short generation tests; Gemma 4 12B fits fully in the RTX 4070's 12 GB VRAM.
 
 Qwen3-Coder 30B uses both GPU VRAM and system RAM because the quantized model is larger than the RTX 4070's 12 GB VRAM.
 

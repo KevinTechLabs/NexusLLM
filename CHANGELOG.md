@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-14
+
+- Switched the general "Nexus" model from Qwen3 8B to Gemma 4 12B in the README, models, Open WebUI and Knowledge Base docs.
+- Restored `apps/nexus-hq/server.js` and `apps/nexus-hq/agents.json`, which an automated update had accidentally truncated.
+- Nexus HQ `/update` now refuses unsafe edits: files too large to read in full, and edits that would shrink a file by more than 40% unless removal was requested.
+
 ## 2026-10-13
 
 - Added **Nexus HQ** (`apps/nexus-hq/`): animated agent dashboard for Chat and Coding departments on port 3100, run by systemd.
