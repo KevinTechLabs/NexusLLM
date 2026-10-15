@@ -1249,7 +1249,12 @@ async function dispatch(raw) {
       try {
         if (gi.kind === "ask") conLine(gi.msg, "sys");
         else if (gi.kind === "list") await ghCommand("/repos");
-        else { store.set("hq.repo", gi.repo); session.repo = gi.repo; conLine(`GitHub → <b>${esc(gi.repo)}</b> · ${gi.kind === "read" ? "reading" : "preparing a change"}`, "sys"); await (gi.kind === "read" ? ghReview(gi.repo, q) : ghUpdate(gi.repo, q)); }
+        else { store.set("hq.repo", gi.repo);
+          // A follow-up carries the earlier request with it, so "you didn't remove the readme" makes sense to the Builder
+          const ask = gi.follow && session.ghLast ? `Earlier request: ${session.ghLast}\nFollow-up (do this now, on the current files): ${q}` : q;
+          session.repo = gi.repo; session.ghTurn = session.items.filter((i) => i.k === "cmd").length; session.ghLast = ask.slice(0, 600);
+          conLine(`GitHub → <b>${esc(gi.repo)}</b>${gi.follow ? " <span class='dim'>(same repo as before)</span>" : ""} · ${gi.kind === "read" ? "reading" : "preparing a change"}`, "sys");
+          await (gi.kind === "read" ? ghReview(gi.repo, ask) : ghUpdate(gi.repo, ask)); }
       } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
       return saveSession();
     }
@@ -1579,27 +1584,31 @@ document.addEventListener("click", async (e) => {
 // Plain-English GitHub requests: "read my NexusLLM repo", "add a FAQ to my NexusLLM repo", "show my repos".
 // Only kicks in when you clearly mean YOUR repos, so "how do I create a git repo?" still goes to the agents.
 async function ghIntent(q) {
-  const t = q.toLowerCase();
+  const t = q.toLowerCase().replace(/\bread\s+me\b/g, "readme");
   const mine = /\b(my|our)\s+(github|repos?|repositor(y|ies))\b|\b(this|the|current|that)\s+repo\b|\bmy\s+[\w.-]+\s+repo\b|\bon (my )?github\b/.test(t);
   if (!ghRepoList?.length) { try { ghRepoList = (await jfetch("/api/github/repos")).repos; } catch { ghRepoList = null; } }
   const named = (ghRepoList || []).filter((r) => r.name.length >= 3 && new RegExp(`(^|[^\\w.-])${r.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w.-]|$)`).test(t))
     .sort((a, b) => b.name.length - a.name.length)[0]?.name;
   // Follow-ups in the same chat: "add an example readme to it", "now fix the readme"
-  const lastGh = [...session.items].reverse().slice(0, 6).some((i) => i.k === "pr" || (i.k === "cmd" && /repo|github/i.test(i.text || "")));
+  // Recent = one of your last 3 messages was a GitHub request
+  const turn = session.items.filter((i) => i.k === "cmd").length;
+  const lastGh = session.ghTurn != null && turn - session.ghTurn <= 3;
   const follow = !mine && !named && session.repo && lastGh &&
     /\b(it|that|this|there|the repo|readme|read ?me|file|section|folder|docs?)\b/.test(t) &&
-    /\b(add|update|change|edit|fix|put|write|insert|remove|delete|rename|replace|create|append|include|make|improve|rewrite|read|review|check)\b/.test(t);
+    /\b(add|update|change|edit|fix|put|write|insert|remove|delete|del|rename|replace|create|append|include|make|improve|rewrite|document|get rid|rid of|clean|clear|strip|keep only|only keep|erase|wipe|undo|revert|reset|trim|shorten|move|set|reword|format|reformat|organi[sz]e|restructure|swap|bump|upgrade|refactor|implement|build|generate|convert|translate|read|review|check|didn'?t|did not|still|again|undo)\b/.test(t);
   if (!mine && !named && !follow) return null;
   const readRe = /\b(read|review|look (at|over|through)|check|summari[sz]e|explain|go (over|through)|analy[sz]e|audit|scan|tell me about|what('s| is) in)\b/;
-  const addRe = /\b(add|update|change|edit|fix|put|write|insert|remove|delete|rename|replace|create|append|include|make|improve|rewrite|document)\b/;
+  const addRe = /\b(add|update|change|edit|fix|put|write|insert|remove|delete|del|rename|replace|create|append|include|make|improve|rewrite|document|get rid|rid of|clean|clear|strip|keep only|only keep|erase|wipe|undo|revert|reset|trim|shorten|move|set|reword|format|reformat|organi[sz]e|restructure|swap|bump|upgrade|refactor|implement|build|generate|convert|translate)\b/;
   const ri = t.search(readRe), ai = t.search(addRe);
-  const kind = ri === -1 && ai === -1 ? (named ? "read" : null) : ai === -1 ? "read" : ri === -1 ? "add" : ri < ai ? "read" : "add";
+  // Neither kind of verb: a question ("what's in my X repo?") reads; anything else is a change request
+  const question = /^\s*(what|how|why|is|are|does|do|which|where|who|when|tell me|explain|show)\b/.test(t);
+  const kind = ri === -1 && ai === -1 ? ((named || follow) ? (question ? "read" : "add") : null) : ai === -1 ? "read" : ri === -1 ? "add" : ri < ai ? "read" : "add";
   if (!named && /\b(repos|repositories)\b/.test(t) && (kind === "read" || /\b(list|show|which|what are|see)\b/.test(t) || !kind)) return { kind: "list" };
   if (!kind) return null;
   const remembered = (D.memory || []).map((m) => m.text.match(/\b(?:main|default|primary)\s+(?:github\s+)?repo(?:sitory)?\s+is\s+([\w.-]+)/i)?.[1]).find(Boolean);
   const repo = named || (follow ? session.repo : null) || curRepo() || (await knownRepo(remembered));
   if (!repo) return { kind: "ask", msg: `Which repo? Say it by name, e.g. <b>${kind === "read" ? "read my NexusLLM repo" : "add a FAQ to my NexusLLM repo"}</b>. Your repos: ${(ghRepoList || []).slice(0, 12).map((r) => `<b>${esc(r.name)}</b>`).join(", ") || "none found"}.` };
-  return { kind, repo };
+  return { kind, repo, follow: !!follow && !named };
 }
 
 async function ghCommand(q) {
@@ -1668,7 +1677,7 @@ async function ghCommand(q) {
     if (!repo) return conLine("Which repo? Type <b>/repo repo-name</b> once, then <b>/update what to change</b>. (Or <b>/update repo-name what to change</b>.)", "sys");
     if (!instruction) return conLine(`What should change in <b>${esc(repo)}</b>? e.g. <b>/update in README.md under AI Models, add a line about Gemma 4 12B</b>`, "sys");
     if (r) store.set("hq.repo", r);
-    session.repo = repo;
+    session.repo = repo; session.ghTurn = session.items.filter((i) => i.k === "cmd").length; session.ghLast = instruction.slice(0, 600);
     return ghUpdate(repo, instruction);
   }
 }
@@ -1759,7 +1768,7 @@ Never rewrite a long existing file in full. Never copy the BEGIN/END markers or 
     const r = await work(builder, systemFor(builder, idx.task["write-code"]), [{ role: "user", content: ask }], signal);
     if (r.error) throw new Error(r.error);
     // Safety: never let a change wipe out code the Builder couldn't fully see, or gut a file by accident.
-    const allowShrink = /\b(remove|delete|drop|shorten|trim|clean ?up|simplif|strip|cut)\b/i.test(instruction);
+    const allowShrink = /\b(remove|delete|drop|shorten|trim|clean ?up|simplif|strip|cut|get rid|rid of|except|keep only|only keep|erase|wipe|clear|reset|replace)\b/i.test(instruction);
     const blocked = [];
     // Small edits: apply FIND/REPLACE against the full current file (fetched whole if it was too big to show)
     const edited = [];
@@ -1800,7 +1809,8 @@ Never rewrite a long existing file in full. Never copy the BEGIN/END markers or 
     await work(reviewer, systemFor(reviewer, idx.task["review-code"]), [{ role: "user", content: `A change was made to ${snap.repo} for this request: """${instruction}"""\n\nNew versions of the changed files:\n${shown}\n\nStart with "VERDICT: ship" or "VERDICT: fix first", then list only real problems with the fix.` }], signal);
 
     // 4. Show the proposed pull request
-    const title = instruction.length > 70 ? instruction.slice(0, 67) + "…" : instruction;
+    const shortAsk = instruction.replace(/^Earlier request:[\s\S]*?Follow-up \(do this now, on the current files\): /, "");
+    const title = shortAsk.length > 70 ? shortAsk.slice(0, 67) + "…" : shortAsk;
     const card = { k: "pr", repo: snap.repo, title: title[0].toUpperCase() + title.slice(1), instruction, files };
     addItem(card);
   });

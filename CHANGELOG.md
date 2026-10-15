@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-15
+
+- Nexus HQ understands more ways to ask for repo changes ("get rid of", "clean up", "keep only", ...), keeps follow-ups on the same repo for your next few messages, and passes the earlier request along with the follow-up.
+
 ## 2026-10-14
 
 - Nexus HQ memory: "remember that ...", "what do you remember", "forget ..."; every agent sees remembered facts. Follow-ups like "add it to that repo" stay on the same repo, and repo edits tolerate model noise in FIND blocks.
