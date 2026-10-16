@@ -697,10 +697,13 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
   .con-plus{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);color:var(--white);font-size:22px;line-height:1;background:#0a1122}
   #conInput{flex:1;min-width:0;height:40px;padding:0 14px;border:1px solid var(--line2);border-radius:20px;background:#070d1b;font-size:16px}
   #conInput:focus{border-color:var(--chat)}
-  #conRun{flex:none;width:40px;height:40px;padding:0;border-radius:50%;font-size:0;display:grid;place-items:center;background:var(--chat);border-color:var(--chat)}
-  #conRun::before{content:"";width:14px;height:14px;background:var(--bg);clip-path:polygon(50% 0,100% 55%,62% 55%,62% 100%,38% 100%,38% 55%,0 55%)}
-  .console:has(.con-status.busy) #conRun{background:var(--bad);border-color:var(--bad)}
-  .console:has(.con-status.busy) #conRun::before{clip-path:none;width:12px;height:12px;border-radius:2px}
+  #conRun{flex:none;width:38px;height:38px;padding:0;border-radius:50%;font-size:0;display:block;position:relative;background:var(--chat);border:0;box-shadow:0 0 0 1px #36e2c855,0 4px 14px #36e2c840;transition:transform .12s,background .15s,opacity .15s}
+  #conRun::before{content:"";position:absolute;inset:0;margin:auto;width:18px;height:18px;background:var(--bg);-webkit-mask:var(--arrow) center/contain no-repeat;mask:var(--arrow) center/contain no-repeat;
+    --arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19V5'/%3E%3Cpath d='M5.5 11.5 12 5l6.5 6.5'/%3E%3C/svg%3E")}
+  #conRun:active{transform:scale(.92)}
+  .console:not(:has(.con-status.busy)):has(#conInput:placeholder-shown) #conRun{opacity:.45;box-shadow:none}
+  .console:has(.con-status.busy) #conRun{background:var(--bad);box-shadow:0 0 0 1px #ff5d7355,0 4px 14px #ff5d7340;opacity:1}
+  .console:has(.con-status.busy) #conRun::before{-webkit-mask:none;mask:none;width:12px;height:12px;border-radius:3px}
 
   /* + menu */
   .plus-menu:not([hidden]){display:flex;flex-direction:column;position:absolute;left:10px;bottom:62px;z-index:45;min-width:210px;padding:6px;border:1px solid var(--line2);border-radius:14px;background:#0b1328f7;backdrop-filter:blur(12px);box-shadow:0 18px 50px #000c}
