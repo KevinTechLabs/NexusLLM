@@ -176,9 +176,11 @@ async function* streamAnthropic(m, messages, system, signal) {
   yield { type: "usage", input, output, cacheRead, cacheWrite };
 }
 
-async function* streamOllama(m, messages, system, signal) {
+// Keep models loaded between questions so replies start fast (Ollama's default unloads after 5 minutes)
+const KEEP_ALIVE = env("OLLAMA_KEEP_ALIVE", "30m");
+async function* streamOllama(m, messages, system, signal, opts = {}) {
   const msgs = system ? [{ role: "system", content: system }, ...withImages("ollama", messages)] : withImages("ollama", messages);
-  const body = { model: m.model, stream: true, messages: msgs, options: { num_ctx: NUM_CTX } };
+  const body = { model: m.model, stream: true, messages: msgs, keep_alive: KEEP_ALIVE, options: { num_ctx: NUM_CTX, ...(opts.num_predict ? { num_predict: opts.num_predict } : {}) } };
   if (m.think !== undefined) body.think = m.think;
   let res;
   try {
@@ -317,6 +319,41 @@ if (!/^(off|none|false|0)$/i.test(VAULT_DIR)) {
 
 const GITHUB_TOKEN = env("GITHUB_TOKEN", "");
 const github = GITHUB_TOKEN ? makeClient(GITHUB_TOKEN) : null;
+// ---- homelab awareness (NexusLab + Sentinel) ----
+const { makeHomelab } = require("./lib/homelab");
+const homelab = (env("NEXUSLAB_URL", "") || env("SENTINEL_URL", ""))
+  ? makeHomelab({ nexuslabUrl: env("NEXUSLAB_URL", ""), nexuslabUser: env("NEXUSLAB_USER", "admin"), nexuslabPassword: env("NEXUSLAB_PASSWORD", ""), sentinelUrl: env("SENTINEL_URL", "") })
+  : null;
+if (homelab) homelab.refresh(true).catch(() => {});
+
+// ---- phone notifications (Web Push) ----
+const { makePush } = require("./lib/webpush");
+let push = null;
+try { push = makePush({ dataDir: path.join(__dirname, "data"), log: (m) => console.log(m) }); } catch (e) { console.warn(`Notifications disabled: ${e.message}`); }
+const presence = new Map(); // device id -> { visible, at }
+const chatJobs = new Map(); // answer id -> { text, done } for answers finished while you were away
+setInterval(() => { const cut = Date.now() - 15 * 60e3; for (const [k, v] of chatJobs) if (v.at < cut) chatJobs.delete(k); for (const [k, v] of presence) if (v.at < cut - 36e5) presence.delete(k); }, 60e3).unref();
+// Watch the lab and push new critical/high alerts and machines going offline (PUSH_LAB_ALERTS=off to stop)
+if (homelab && push && !/^(off|0|false|no)$/i.test(env("PUSH_LAB_ALERTS", "on"))) {
+  const watch = async () => { try { if (!push.count()) return; for (const c of await homelab.changes()) await push.send({ title: c.title, body: c.body, url: "/", tag: c.kind }, { urgency: c.sev === "critical" ? "high" : "normal" }); } catch {} };
+  setTimeout(() => { homelab.changes().catch(() => {}); setInterval(watch, 60e3).unref(); }, 15e3).unref();
+}
+
+// ---- smarter vault search (by meaning) ----
+const { makeSemantic } = require("./lib/semantic");
+const semantic = vault && !/^(off|0|false|no)$/i.test(env("EMBED_MODEL", "nomic-embed-text"))
+  ? makeSemantic({ vault, ollamaUrl: OLLAMA_URL, model: env("EMBED_MODEL", "nomic-embed-text"), cacheFile: path.join(__dirname, "data", "vault-embeddings.json"), log: (m) => console.log(m) })
+  : null;
+if (semantic) setTimeout(() => semantic.ready().then((ok) => ok && semantic.index()).catch(() => {}), 20e3).unref();
+
+// ---- faster first replies: load the chat model when the server starts ----
+async function warm(modelId) {
+  const m = MODELS.find((x) => x.id === modelId && x.provider === "ollama");
+  if (!m) return false;
+  try { const r = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: m.model, keep_alive: KEEP_ALIVE }), signal: AbortSignal.timeout(180000) }); return r.ok; } catch { return false; }
+}
+setTimeout(() => warm("gemma"), 8e3).unref();
+
 // Keep repo notes in the vault in sync with GitHub (REPO_SYNC_MINUTES=0 turns it off)
 const { makeRepoSync } = require("./lib/reposync");
 const REPO_SYNC_MINUTES = Number(env("REPO_SYNC_MINUTES", 30));
@@ -596,6 +633,44 @@ async function handle(req, res) {
     return jsonOut(res, 200, { items: readMemory() });
   }
 
+  // ---- homelab ----
+  if (url.pathname.startsWith("/api/homelab")) {
+    if (!homelab) return jsonOut(res, 200, { configured: false });
+    try {
+      if (url.pathname === "/api/homelab" && req.method === "GET") { await homelab.refresh(url.searchParams.has("fresh")); return jsonOut(res, 200, homelab.chip()); }
+      if (url.pathname === "/api/homelab/context") { await homelab.refresh(true); return jsonOut(res, 200, { text: homelab.text(), chip: homelab.chip(), containers: homelab.containers() }); }
+      if (url.pathname === "/api/homelab/action" && req.method === "POST") {
+        const b = await readBody(req);
+        if (b.kind === "container") return jsonOut(res, 200, await homelab.containerAction(String(b.device), String(b.name), String(b.action)));
+        if (b.kind === "alert") return jsonOut(res, 200, await homelab.alertAction(String(b.id), String(b.action)));
+        return jsonOut(res, 400, { error: "unknown action" });
+      }
+    } catch (e) { return jsonOut(res, 502, { error: e.message }); }
+    return jsonOut(res, 404, { error: "unknown homelab action" });
+  }
+
+  // ---- notifications ----
+  if (url.pathname === "/api/push/key") return jsonOut(res, 200, { enabled: !!push, key: push?.publicKey || null, devices: push?.count() || 0 });
+  if (url.pathname === "/api/push/subscribe" && req.method === "POST" && push) { const b = await readBody(req); push.subscribe(b.subscription, b.label); return jsonOut(res, 200, { ok: true, devices: push.count() }); }
+  if (url.pathname === "/api/push/unsubscribe" && req.method === "POST" && push) { const b = await readBody(req); push.unsubscribe(String(b.endpoint || "")); return jsonOut(res, 200, { ok: true, devices: push.count() }); }
+  if (url.pathname === "/api/push/test" && req.method === "POST" && push) { const r = await push.send({ title: "🔔 Nexus HQ", body: "Notifications are working.", url: "/", tag: "test" }); return jsonOut(res, 200, r); }
+  if (url.pathname === "/api/push/presence" && req.method === "POST") {
+    let b = {}; try { b = await readBody(req); } catch {}
+    if (/^[\w-]{6,40}$/.test(String(b.cid || ""))) presence.set(b.cid, { visible: !!b.visible, at: Date.now() });
+    res.writeHead(204); return res.end();
+  }
+
+  // ---- answers finished while you were away; warm-up; which models are loaded ----
+  const cr = url.pathname.match(/^\/api\/chat\/result\/([\w-]{6,40})$/);
+  if (cr) { const j = chatJobs.get(cr[1]); return jsonOut(res, j ? 200 : 404, j ? { text: j.text, done: j.done, model: j.model, ms: j.ms, error: j.error } : { error: "not found" }); }
+  const cc = url.pathname.match(/^\/api\/chat\/cancel\/([\w-]{6,40})$/);
+  if (cc && req.method === "POST") { chatJobs.get(cc[1])?.ac?.abort(); res.writeHead(204); return res.end(); }
+  if (url.pathname === "/api/warm" && req.method === "POST") { const b = await readBody(req).catch(() => ({})); warm(String(b.model || "gemma")); return jsonOut(res, 200, { ok: true }); }
+  if (url.pathname === "/api/models/loaded") {
+    try { const r = await fetch(`${OLLAMA_URL}/api/ps`, { signal: AbortSignal.timeout(2000) }); const j = await r.json(); return jsonOut(res, 200, { loaded: (j.models || []).map((x) => x.name) }); }
+    catch { return jsonOut(res, 200, { loaded: [] }); }
+  }
+
   // ---- Obsidian vault ----
   if (url.pathname.startsWith("/api/vault")) {
     if (!vault) return jsonOut(res, 503, { error: "The notes vault is turned off (VAULT_DIR=off in .env)." });
@@ -622,7 +697,11 @@ async function handle(req, res) {
         return jsonOut(res, 200, vault.save({ title: b.title, body, tags: Array.isArray(b.tags) ? b.tags : [], folder: b.folder || "Notes", key: b.key || "", source: b.source || "nexus-hq" }));
       }
       if (url.pathname === "/api/vault/note" && req.method === "DELETE") return jsonOut(res, 200, vault.remove(url.searchParams.get("path") || ""));
-      if (url.pathname === "/api/vault/search") return jsonOut(res, 200, { results: vault.search(url.searchParams.get("q") || "", Math.min(Number(url.searchParams.get("k")) || 3, 8)) });
+      if (url.pathname === "/api/vault/search") {
+        const q = url.searchParams.get("q") || "", k = Math.min(Number(url.searchParams.get("k")) || 3, 8);
+        if (semantic) return jsonOut(res, 200, await semantic.search(q, k));
+        return jsonOut(res, 200, { results: vault.search(q, k), mode: "keywords" });
+      }
       if (url.pathname === "/api/vault/sync") {
         if (!repoSync) return jsonOut(res, 200, { enabled: false, reason: !github ? "GitHub isn't connected" : "REPO_SYNC_MINUTES is 0" });
         if (req.method === "POST") { if (!repoSync.state.running) repoSync.run().catch(() => {}); await new Promise((r) => setTimeout(r, 50)); }
@@ -735,7 +814,7 @@ async function handle(req, res) {
       return res.end(JSON.stringify({ error: `agents.json could not be read: ${e.message}` }));
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), vault: vault ? { enabled: true, name: vault.name, notes: vault.list().length } : { enabled: false }, spend: spendInfo() }));
+    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), vault: vault ? { enabled: true, name: vault.name, notes: vault.list().length, search: semantic ? "meaning" : "keywords" } : { enabled: false }, homelab: homelab ? homelab.chip() : { configured: false }, push: { enabled: !!push, devices: push?.count() || 0 }, spend: spendInfo() }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/models") {
@@ -763,22 +842,36 @@ async function handle(req, res) {
       send({ type: "note", text: `${m.label} reached the ${limitHit()}, so ${fb.label} is standing in` });
       m = fb;
     }
+    // If you leave the app mid-answer, the answer keeps going here and can be fetched later
+    const rid = /^[\w-]{6,40}$/.test(String(body.rid || "")) ? body.rid : null;
+    const job = rid ? { text: "", done: false, at: Date.now() } : null;
+    if (job) chatJobs.set(rid, job);
     const ac = new AbortController();
-    res.on("close", () => ac.abort());
+    if (job) job.ac = ac;
+    let clientGone = false;
+    res.on("close", () => { clientGone = !res.writableFinished; if (!job) ac.abort(); });
 
     const t0 = Date.now();
     let ttft = null;
     try {
-      for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal)) {
-        if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; send(ev); }
+      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined };
+      for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal, popts)) {
+        if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; if (job) job.text += ev.text; if (!clientGone) send(ev); }
         else if (ev.type === "usage") {
           send({ type: "usage", input: ev.input ?? null, output: ev.output ?? null });
           if (m.budgeted) { const usd = costOf(m, ev); addSpend(usd); send({ type: "cost", usd, ...spendInfo() }); }
         }
       }
-      send({ type: "done", ms: Date.now() - t0, ttft, model: m.id });
+      if (!clientGone) send({ type: "done", ms: Date.now() - t0, ttft, model: m.id });
+      if (job) { job.done = true; job.model = m.id; job.ms = Date.now() - t0; }
+      // phone notification when the answer finishes and you're not looking at Nexus HQ
+      const away = clientGone || (body.cid && presence.get(body.cid)?.visible === false);
+      if (push && body.notify && away && Date.now() - t0 > 4000) {
+        push.send({ title: "✓ Answer ready", body: String(body.notify).slice(0, 120), url: "/", tag: "answer" }).catch(() => {});
+      }
     } catch (e) {
-      if (e.name !== "AbortError") send({ type: "error", message: String(e.message || e) });
+      if (job) { job.done = true; job.error = String(e.message || e); }
+      if (e.name !== "AbortError" && !clientGone) send({ type: "error", message: String(e.message || e) });
     }
     return res.end();
   }

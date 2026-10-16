@@ -40,6 +40,11 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - The **Photos** tab is a gallery of everything you've added, shared by your phone and PC: grouped by day, full-screen viewer, swipe, download, delete, and **Ask about it**. Select up to 4 to ask about together.
   - Photos are shrunk to 1600px before upload and saved in `~/Documents/NexusPhotos`, so they're also in a normal folder on the PC. Pictures you copy into that folder show up in the tab too.
   - With Opus on, a photo sent to Opus costs about 1¢.
+- **Homelab awareness:** ask "is anything down?", "how hot is the GPU?", "any new alerts?" or "what's my power bill this month?" and the agents answer from live NexusLab and Sentinel data. Say "restart pihole" or "ack alert A-1043" and Nexus HQ asks you to confirm first. A **Lab** chip shows machines up and open alerts.
+- **Smarter vault search:** notes are found by meaning, not just matching words ("what should I cook tonight" finds *Weeknight dinner*), using the local `nomic-embed-text` model. Falls back to keyword search if it isn't installed.
+- **Phone notifications:** a notification when an answer finishes while you're away, when a critical or high alert comes in, and when a machine goes offline or comes back. If the phone puts the app to sleep mid-answer, the answer keeps going on the PC and shows up when you come back.
+- **Faster replies:** models stay loaded for 30 minutes, Gemma loads when the server starts, the model starts loading while you type, and coding questions skip the router so Gemma and Qwen don't swap in and out of GPU memory.
+- **Rename chats:** tap the chat title, the ✎ in **Chats**, or type `/rename new name`.
 - **Phone app layout:** on the iPhone, Nexus HQ looks like a native app:
   - a slim top bar with a status pill (models, GitHub, Compare, log out)
   - a bottom tab bar: **HQ** (map plus the Chat and Coding departments), **Ask** (full-screen chat with message bubbles), **Vault** and **Photos**
@@ -134,6 +139,27 @@ Nexus HQ creates the vault on first start: a `NexusVault` folder next to the `ne
 - **On your phone:** sync the folder with Syncthing (free) or Obsidian Sync. Don't put the vault in a public GitHub repo.
 - If Obsidian can't save changes, the folder is owned by root: `sudo chown -R $USER:$USER ~/Documents/NexusVault`.
 
+### Homelab (optional)
+
+Add to `.env` (use your NexusLab login; the addresses are whatever you use in the browser):
+
+```ini
+NEXUSLAB_URL=http://<lab-server>:<port>
+NEXUSLAB_USER=admin
+NEXUSLAB_PASSWORD=...
+SENTINEL_URL=http://<lab-server>:<port>
+```
+
+Container restart/stop/start only works on machines where NexusLab has Docker control turned on, and always asks you first.
+
+### Smarter vault search
+
+```bash
+ollama pull nomic-embed-text
+```
+
+The index builds itself in the background (`data/vault-embeddings.json`) and only re-reads notes that changed.
+
 ### Claude Opus (optional, paid)
 
 Set `ANTHROPIC_API_KEY` (or `OPENROUTER_API_KEY`) in `.env`. Spending controls:
@@ -161,6 +187,23 @@ sudo ufw allow in on tailscale0 to any port 3100
 
 iOS caches Home Screen icons. After an icon change, delete the shortcut and add it again.
 
+### Notifications (needs https)
+
+iPhones only allow notifications for a Home Screen app opened from an `https://` address. Tailscale gives you one for free, reachable only on your tailnet:
+
+```bash
+sudo tailscale serve --bg 3100
+tailscale serve status        # shows https://nexus-ai.<your-tailnet>.ts.net
+```
+
+If it asks, enable HTTPS certificates for your tailnet in the Tailscale admin console (DNS → HTTPS Certificates).
+
+1. On the iPhone, open `https://nexus-ai.<your-tailnet>.ts.net` in Safari and log in.
+2. Delete the old Home Screen icon, then **Share → Add to Home Screen**.
+3. Open Nexus HQ from the new icon, tap the status pill → **Phone notifications**, and allow them. A test notification arrives.
+
+The plain `http://…:3100` address keeps working; only the https one can send notifications.
+
 ---
 
 ## 🔐 Security
@@ -176,7 +219,7 @@ iOS caches Home Screen icons. After an icon change, delete the shortcut and add 
 |---|---|
 | `.env` | Ports, password, model names, budgets, API keys, `GITHUB_TOKEN` |
 | `agents.json` | Departments, agents, tasks, pipelines and the shared house style. Changes take effect on a page refresh, with no restart. |
-| `data/` | Runtime state: `sessions/`, `projects/`, `spend.json`, `settings.json` |
+| `data/` | Runtime state: `sessions/`, `projects/`, `spend.json`, `settings.json`, `vault-embeddings.json`, `vapid.json` + `push-subscriptions.json` (notification keys, never commit) |
 
 ## 🧰 Troubleshooting
 

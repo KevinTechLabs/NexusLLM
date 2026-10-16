@@ -752,3 +752,18 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
 .v-sync{font-size:10.5px;color:var(--muted);border:1px solid var(--line2);border-radius:20px;padding:2px 9px;letter-spacing:.04em}
 .v-sync:hover{color:var(--vault);border-color:var(--vault)}
 .v-sync.on{color:var(--vault);border-color:var(--vault);animation:blink 1.2s steps(2) infinite}
+
+/* ---- homelab, notifications, rename ---- */
+.mchip.lab,.mchip.bell{cursor:pointer;font:inherit}
+.mchip.bell.off .d{background:var(--dim)}
+.lab-act{display:inline-flex;gap:8px;margin-left:10px;vertical-align:middle;flex-wrap:wrap}
+.btn-sm{font:inherit;font-size:11px;padding:4px 12px;border-radius:6px;border:1px solid var(--line2);background:#0a1122;color:var(--text);cursor:pointer}
+.btn-sm:hover{border-color:var(--chat)}
+.btn-sm.go{border-color:var(--warn);color:var(--warn)}
+.btn-sm.go:hover{background:var(--warn);color:#000}
+.con-log .ok{color:var(--ok)}
+.con-title{cursor:pointer}
+.con-title:hover{text-decoration:underline dotted;text-underline-offset:3px}
+.dr-ren{color:var(--dim);padding:0 8px;font-size:13px}
+.dr-ren:hover{color:var(--chat)}
+@media (max-width:760px){ .lab-act{display:flex;margin:8px 0 0} .btn-sm{padding:8px 16px;font-size:13px} .dr-ren{padding:0 12px;font-size:15px} }

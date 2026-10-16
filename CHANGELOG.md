@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ: homelab awareness (live NexusLab + Sentinel data for agents, Lab chip, "restart pihole" / "ack alert" with a confirm), vault search by meaning (nomic-embed-text), phone notifications over https (answer ready, critical/high alerts, machines offline), answers that survive the phone sleeping, faster replies (models stay loaded, warm-up, prewarm while typing, no router for code), and renaming chats.
+
 - Nexus HQ repo sync: repo notes in the vault follow GitHub automatically (new commits logged, new repos added, overviews refreshed), plus "sync my repos" and a sync chip in the Vault tab.
 
 - Nexus HQ: "add all my repos to my vault" (one note per repo). Answers to Nexus HQ's own questions work ("Which repo?" → "all of them" or a repo name). GitHub, notes and memory actions are part of the conversation, so agents understand follow-ups, and agents know the exact phrases the app understands.

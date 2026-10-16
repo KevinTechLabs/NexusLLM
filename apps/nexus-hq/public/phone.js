@@ -19,8 +19,9 @@ function updatePill() {
   if (!D) return;
   const ms = D.models || [], ok = ms.filter((m) => m.ready && m.enabled !== false).length;
   const gh = D.github?.enabled ? (D.github.error ? "bad" : "ok") : "";
-  const warn = ok < ms.filter((m) => m.enabled !== false).length || gh === "bad";
-  $("#statusTxt").textContent = `${ok}/${ms.length} models${gh ? " · git" : ""}`;
+  const warn = ok < ms.filter((m) => m.enabled !== false).length || gh === "bad" || !!(D.homelab?.offline?.length || D.homelab?.critical);
+  const lab = D.homelab?.configured ? ((D.homelab.offline?.length || D.homelab.critical) ? " · lab ⚠" : " · lab") : "";
+  $("#statusTxt").textContent = `${ok}/${ms.length} models${gh ? " · git" : ""}${lab}`;
   $("#statusPill").classList.toggle("warn", warn);
 }
 
@@ -59,6 +60,9 @@ function openSheet() {
     <div class="sh-head"><b>Status</b><button class="con-btn icon" data-sheet="close" aria-label="Close">✕</button></div>
     <div class="sh-sec"><span class="kicker">models &amp; services</span><div class="sh-chips">${$("#models").innerHTML}</div><p class="dim">Tap a model to see details or switch Opus on and off.</p></div>
     <div class="sh-sec"><span class="kicker">tools</span>
+      ${D?.push?.enabled ? `<button class="sh-row" data-bell data-sheet="close">Phone notifications <span>${pushState() ? "on ›" : "off ›"}</span></button>` : ""}
+      ${D?.homelab?.configured ? `<button class="sh-row" data-lab data-sheet="close">Lab status <span>›</span></button>` : ""}
+      <button class="sh-row" data-sheet="close" onclick="goTab('ask');drawerOpen(true)">Saved chats (rename, delete) <span>›</span></button>
       <a class="sh-row" href="/compare">Compare models side by side <span>›</span></a>
       <button class="sh-row" data-sheet="close" onclick="dispatch('/help')">Commands &amp; tips <span>›</span></button>
       ${$("#logoutBtn").hidden ? "" : `<button class="sh-row bad" data-sheet="logout">Log out <span>›</span></button>`}
@@ -67,7 +71,7 @@ function openSheet() {
   requestAnimationFrame(() => s.classList.add("open"));
 }
 function closeSheet() { const s = $("#sheet"); s.classList.remove("open"); $("#sheetBack").hidden = true; setTimeout(() => (s.hidden = true), 200); }
-document.addEventListener("click", (e) => { if (e.target.closest("#sheet [data-open]")) closeSheet(); }, true);
+document.addEventListener("click", (e) => { if (e.target.closest("#sheet [data-open], #sheet [data-bell], #sheet [data-lab]")) closeSheet(); }, true);
 
 // ----- "working…" / "answer ready" peek above the ask bar on the HQ tab -----
 function showPeek(html, ready) {

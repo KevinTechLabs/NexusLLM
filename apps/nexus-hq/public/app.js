@@ -144,7 +144,7 @@ function renderChrome() {
   ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
   $("#models").innerHTML = D.models.map((m) =>
     `<button class="mchip ${m.ready && !m.overBudget && m.enabled !== false ? "" : "off"}" data-open="model:${m.id}" title="${esc(m.ready && !m.overBudget && m.enabled !== false ? "Ready" : m.note)}"><span class="d"></span>${esc(m.label)} <span class="m">${m.enabled === false ? "off" : esc(m.model)}</span></button>`
-  ).join("") + (D.spend && D.models.some((m) => m.budgeted && m.enabled !== false) ? spendChip(D.spend) : "") + ghChip(D.github);
+  ).join("") + (D.spend && D.models.some((m) => m.budgeted && m.enabled !== false) ? spendChip(D.spend) : "") + ghChip(D.github) + (window.labChip?.(D.homelab) || "") + (window.bellChip?.() || "");
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
 }
 
@@ -617,8 +617,13 @@ function renderMsgs(streamingIdx = -1) {
 
 async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
   const out = { text: "", stats: {}, error: null };
+  // Each answer gets an id, so if the phone puts the app to sleep mid-answer the server keeps going
+  // and the finished answer is picked up when you come back (plus a notification if they're on)
+  const rid = opts.quick ? null : Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+  const stop = () => rid && fetch(`/api/chat/cancel/${rid}`, { method: "POST", headers: headers(), keepalive: true }).catch(() => {});
+  signal?.addEventListener("abort", stop, { once: true });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
     if (!r.ok) throw new Error(r.status === 401 ? "Password required — reload the page." : `Server error ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -641,10 +646,25 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
     }
   } catch (e) {
     out.error = e.name === "AbortError" ? (out.text ? null : "Stopped.") : e.message;
+    // the connection dropped (phone slept, Wi-Fi blip) but the answer is still being written on the PC
+    if (rid && e.name !== "AbortError" && !signal?.aborted) {
+      opts.onNote?.("Connection dropped. Picking the answer up from Nexus HQ…");
+      for (let i = 0; i < 300 && !signal?.aborted; i++) {
+        try {
+          const j = await (await fetch(`/api/chat/result/${rid}`, { headers: headers() })).json();
+          if (j.text != null && j.text.length >= out.text.length) { out.text = j.text; onDelta(out.text); }
+          if (j.done) { out.error = j.error || null; out.model = j.model; out.stats.ms = j.ms; break; }
+          if (j.error === "not found") break;
+        } catch {}
+        await new Promise((ok) => setTimeout(ok, document.hidden ? 4000 : 1500));
+      }
+    }
   }
+  signal?.removeEventListener("abort", stop);
   if (!out.error && !out.text) out.error = "Empty response.";
   return out;
 }
+const clientId = (() => { try { let id = localStorage.getItem("hq.cid"); if (!id) { id = "c" + Math.random().toString(36).slice(2, 12); localStorage.setItem("hq.cid", id); } return id; } catch { return "c" + Math.random().toString(36).slice(2, 12); } })();
 
 async function runOne(list, entry, model, system, messages, signal) {
   list.push(entry);
@@ -908,6 +928,7 @@ async function refreshList() {
   $("#conList").innerHTML = sessionList.length
     ? sessionList.map((s) => `<div class="dr-item ${s.id === session.id ? "on" : ""}">
         <button class="dr-open" data-sid="${esc(s.id)}"><span class="dr-t">${esc(s.title)}</span><span class="dr-m">${fmt(s.updated)} · ${s.count} message${s.count === 1 ? "" : "s"}</span></button>
+        <button class="dr-ren" data-ren="${esc(s.id)}" aria-label="Rename ${esc(s.title)}" title="Rename">✎</button>
         <button class="dr-del" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.title)}">✕</button></div>`).join("")
     : `<div class="dr-empty">No saved chats yet. Everything you ask in the console is saved here automatically.</div>`;
 }
@@ -1024,6 +1045,7 @@ async function work(agent, system, messages, signal, sources, opts = {}) {
       : "isn't available";
     conLine(`${esc(own?.label || ({ opus: "Claude Opus", gpt: "GPT" }[agent.model] || agent.model))} ${why}, so ${esc(modelOf(agent).label)} is standing in`, "sys dim");
   }
+  loadingNotice(opts.model || effModelId(agent));
   const ob = outBlock(agent, sources);
   const r = await streamChat(opts.model || effModelId(agent), system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim") });
   ob.done(r, sources);
@@ -1144,6 +1166,7 @@ function routerModel() {
   const ready = D.models.filter((m) => m.ready);
   return ready.find((m) => m.id === "gemma") || ready[0] || null;
 }
+const looksLikeCode = (q) => /```|\b(def|function|const|let|var|class|import|return|async|await)\b.*[({=;:]|traceback|exception:|stack trace|\bnpm\b|\bpip install|\.(py|js|ts|tsx|jsx|go|rs|java|cpp|c|sh|sql)\b|\b(write|fix|debug|refactor) (a |the |this |my )?(python|javascript|typescript|bash|sql|rust|go|java|c\+\+)?\s*(code|function|script|class|bug|test)/i.test(q);
 function guessTask(q) {
   const s = q.toLowerCase(), has = (re) => re.test(s);
   const code = has(/```|\bcode\b|function|script|bug|error|exception|traceback|stack|python|javascript|typescript|\bjs\b|\bts\b|java\b|rust|golang|c\+\+|sql|api|endpoint|regex|compile|refactor|unit test|pytest|jest|class\b|variable|npm|pip|docker|bash|calculator|app\b|program/);
@@ -1171,6 +1194,9 @@ function webGuess(q) {
   return /\b(price|prices|cost|costs|how much|cheapest|deal|latest|newest|new release|released|release date|current|currently|today|tonight|this week|this year|right now|news|update|version|specs?|benchmark|review|reviews|weather|score|stock|20(2[5-9]|3\d)|look up|search|google|find me)\b/i.test(q);
 }
 async function routeTask(q, signal) {
+  // Code is obvious from the words, and skipping the router here avoids swapping Gemma and Qwen in
+  // and out of GPU memory, which is the slowest part of a coding answer
+  if (looksLikeCode(q) && !webGuess(q)) return { id: guessTask(q), how: "quick match", web: false, query: q };
   const rm = routerModel();
   if (!rm) return { id: guessTask(q), how: "keywords (no model online)", web: webGuess(q), query: q };
   const list = D.tasks.filter((t) => !t.manual).map((t) => `${t.id} — ${t.name} [${idx.dept[t.dept]?.name}]`).join("\n");
@@ -1182,7 +1208,7 @@ async function routeTask(q, signal) {
     [{ role: "user", content: `Tasks:\n${list}\n${prev}\nRequest: """${q.slice(0, 2000)}"""\n\nToday's date: ${todayStr()}. Your own knowledge stops around 2024.
 Reply exactly like: {"task": "<task id>", "web": true, "query": "<short search query>"}
 Set "web" to true when a good answer depends on facts that change or that you may not know: prices, product specs or releases, news, recent events, software versions, sports, weather, anything after 2024, or when the user asks you to look something up. Set it to false for writing, explaining stable concepts, math, advice, or coding help on code the user provides.
-"query" is a concise web search query that includes any context needed from the previous request; use "" when web is false.` }], signal, () => {});
+"query" is a concise web search query that includes any context needed from the previous request; use "" when web is false.` }], signal, () => {}, { quick: true, maxTokens: 80 });
   if (r.error) return { id: session.lastTask || guessTask(q), how: `fallback (router error: ${r.error})`, web: webGuess(q), query: q };
   const raw = r.text.replace(/<think>[\s\S]*?<\/think>/g, "");
   let j = null;
@@ -1228,6 +1254,7 @@ Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the
 <b>/ship</b> feature     run the 4-step Ship-a-feature pipeline
 <b>/new</b>              start a new chat (the current one stays saved)
 <b>/chats</b>            open saved chats
+<b>/rename</b> new name     rename this chat (or tap its title, or ✎ in saved chats)
 <b>/agents</b>           list agents and their models
 <b>/full</b>             toggle full-screen console
 <b>/logout</b>           sign this device out            <b>/help</b>  show this`;
@@ -1277,6 +1304,7 @@ async function dispatch(raw) {
       }
     } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); return saveSession(); }
   }
+  if (!images.length && D.homelab?.configured && await labCommand(q)) return saveSession();
   const memCmd = images.length ? false : await memoryCommand(q);
   if (memCmd) return saveSession();
   if (!images.length && vaultOn() && await noteCommand(q)) return saveSession();
@@ -1297,8 +1325,10 @@ async function dispatch(raw) {
       return saveSession();
     }
   }
+  const rn = q.match(/^\/rename\s+(.+)/i);
+  if (rn) { await renameChat(session.id, rn[1]); return; }
   if (q === "/agents") return conLine(D.agents.map((a) => `${agentTag(a)} <span class="dim">@${esc(a.id)}</span>`).join("<br>"), "sys");
-  if (session.title === "New chat") { session.title = q.replace(/\s+/g, " ").slice(0, 70); $("#conTitle").textContent = session.title; }
+  if (session.title === "New chat" && !session.renamed) { session.title = q.replace(/\s+/g, " ").slice(0, 70); $("#conTitle").textContent = session.title; }
 
   con.busy = true; con.ac = new AbortController();
   const signal = con.ac.signal, t0 = Date.now();
@@ -1343,6 +1373,12 @@ async function dispatch(raw) {
   if (vaultOn() && !forceWeb) {
     const notes = await vaultContext(text);
     if (notes.text) webText = notes.text + webText;
+  }
+
+  // Live homelab data (machines, containers, alerts) for questions about the lab
+  if (D.homelab?.configured && labAsk(text)) {
+    const lab = await labContext();
+    if (lab) webText = lab + webText;
   }
 
   // Paid models get a short recap instead of the whole chat.
@@ -1418,6 +1454,8 @@ $("#console").addEventListener("click", async (e) => {
     }
     return;
   }
+  const ren = e.target.closest("[data-ren]");
+  if (ren) return renameChat(ren.dataset.ren);
   const o = e.target.closest("[data-sid]");
   if (o) return openSession(o.dataset.sid);
   const del = e.target.closest("[data-del]");
