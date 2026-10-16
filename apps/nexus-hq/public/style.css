@@ -653,11 +653,14 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
 
   /* main area fills the screen, no frames */
   #viewport{margin:10px 0 0;border:0;border-radius:0;background:transparent}
-  body[data-tab="hq"] #viewport{margin:8px 8px 0;border:1px solid var(--line);border-radius:10px}
+  body[data-tab="hq"] #viewport{margin:6px 0 0;border:0;border-radius:0;background:transparent}
+  *{-webkit-tap-highlight-color:transparent}
+  .tabbar button:focus,.tabbar button:focus-visible,.hq-seg button:focus-visible,.con-plus:focus-visible{outline:none}
+  .tabbar button.on::after{content:"";position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 3px 3px;background:currentColor;box-shadow:0 0 10px currentColor}
   #deptSwitch{bottom:10px}
 
   /* bottom tab bar */
-  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;height:var(--tabbar-h);padding:6px 6px env(safe-area-inset-bottom);background:#060a14f2;backdrop-filter:blur(14px);border-top:1px solid var(--line2)}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;height:var(--tabbar-h);padding:6px 6px env(safe-area-inset-bottom);background:linear-gradient(180deg,#0a1226e6,#070b16f7);backdrop-filter:blur(14px);border-top:1px solid #1c2a4a99}
   .tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;position:relative;border-radius:10px}
   .tabbar svg{width:22px;height:22px}
   .tabbar button.on{color:var(--white)}
@@ -669,7 +672,8 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
   .tab-dot[hidden]{display:none}
 
   /* console: on HQ it's just the ask bar; on Vault/Photos it's hidden; Ask tab = full chat */
-  .console{margin:8px;border-radius:14px;border-color:var(--line2)}
+  .console{margin:6px 8px 4px;border:0;border-radius:0;background:transparent;box-shadow:none}
+  .console .con-input{background:transparent;border:0}
   .console .con-head,.console .con-body,.con-tray:not([hidden]){display:none}
   body[data-tab="vault"] .console,body[data-tab="photos"] .console{display:none}
   #app.con-full .console{margin:0;border:0;border-radius:0;flex:1;min-height:0;background:transparent}
