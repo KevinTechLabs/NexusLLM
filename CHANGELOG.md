@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ: local agents use tools on their own (web search, notes, lab status, calculator, code sandbox), the Builder tests and fixes its code in a locked Docker sandbox before answering, and memory suggestions offer to remember lasting facts you mention (one tap, never automatic).
+
 - Nexus HQ: homelab awareness (live NexusLab + Sentinel data for agents, Lab chip, "restart pihole" / "ack alert" with a confirm), vault search by meaning (nomic-embed-text), phone notifications over https (answer ready, critical/high alerts, machines offline), answers that survive the phone sleeping, faster replies (models stay loaded, warm-up, prewarm while typing, no router for code), and renaming chats.
 
 - Nexus HQ repo sync: repo notes in the vault follow GitHub automatically (new commits logged, new repos added, overviews refreshed), plus "sync my repos" and a sync chip in the Vault tab.

@@ -767,3 +767,13 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
 .dr-ren{color:var(--dim);padding:0 8px;font-size:13px}
 .dr-ren:hover{color:var(--chat)}
 @media (max-width:760px){ .lab-act{display:flex;margin:8px 0 0} .btn-sm{padding:8px 16px;font-size:13px} .dr-ren{padding:0 12px;font-size:15px} }
+
+/* ---- agent tools ---- */
+.ln.tool .tx{color:var(--dim)}
+.tl-ok{color:var(--ok)}
+.tl-bad{color:var(--bad)}
+.tl-wait{animation:blink 1s steps(2) infinite}
+.tl-run{margin-top:6px}
+.tl-run summary{cursor:pointer;color:var(--chat);font-size:11px}
+.tl-run pre{margin:6px 0 0;padding:8px 10px;background:#050912;border:1px solid var(--line2);border-radius:6px;max-height:260px;overflow:auto;font-size:11px;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.tl-run pre.bad{border-color:var(--bad)}

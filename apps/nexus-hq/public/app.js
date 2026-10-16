@@ -623,7 +623,7 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
   const stop = () => rid && fetch(`/api/chat/cancel/${rid}`, { method: "POST", headers: headers(), keepalive: true }).catch(() => {});
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
     if (!r.ok) throw new Error(r.status === 401 ? "Password required — reload the page." : `Server error ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -642,6 +642,8 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
         else if (ev.type === "note") { out.note = ev.text; opts.onNote?.(ev.text); }
         else if (ev.type === "cost") { out.stats.usd = ev.usd; updateSpend(ev); }
         else if (ev.type === "error") out.error = ev.message;
+        else if (ev.type === "tool") opts.onTool?.(ev);
+        else if (ev.type === "toolResult") { if (ev.sources?.length) (out.sources ||= []).push(...ev.sources); opts.onToolResult?.(ev); }
       }
     }
   } catch (e) {
@@ -1045,10 +1047,15 @@ async function work(agent, system, messages, signal, sources, opts = {}) {
       : "isn't available";
     conLine(`${esc(own?.label || ({ opus: "Claude Opus", gpt: "GPT" }[agent.model] || agent.model))} ${why}, so ${esc(modelOf(agent).label)} is standing in`, "sys dim");
   }
-  loadingNotice(opts.model || effModelId(agent));
+  const mid = opts.model || effModelId(agent);
+  loadingNotice(mid);
   const ob = outBlock(agent, sources);
-  const r = await streamChat(opts.model || effModelId(agent), system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim") });
-  ob.done(r, sources);
+  const tl = window.toolLines?.() || {};
+  const r = await streamChat(mid, system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim"), tools: window.toolsFor?.(agent, mid) || [], onTool: tl.start, onToolResult: tl.end });
+  // sources found by the agent's own web searches join the ones searched up front
+  const all = [...(sources || [])];
+  for (const x of r.sources || []) if (!all.some((y) => y.url === x.url)) all.push(x);
+  ob.done(r, all.length ? all : sources);
   return r;
 }
 
@@ -1255,6 +1262,8 @@ Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the
 <b>/new</b>              start a new chat (the current one stays saved)
 <b>/chats</b>            open saved chats
 <b>/rename</b> new name     rename this chat (or tap its title, or ✎ in saved chats)
+<b>/tools</b> on|off       agents search, check your lab and test code on their own
+<b>/automemory</b> on|off  offer to remember things you mention about yourself
 <b>/agents</b>           list agents and their models
 <b>/full</b>             toggle full-screen console
 <b>/logout</b>           sign this device out            <b>/help</b>  show this`;
@@ -1304,6 +1313,7 @@ async function dispatch(raw) {
       }
     } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); return saveSession(); }
   }
+  if (!images.length && await window.smartCommand?.(q)) return saveSession();
   if (!images.length && D.homelab?.configured && await labCommand(q)) return saveSession();
   const memCmd = images.length ? false : await memoryCommand(q);
   if (memCmd) return saveSession();
@@ -1416,8 +1426,11 @@ async function dispatch(raw) {
     session.history.push({ role: "user", content: text, ...(images.length ? { images } : {}) }, { role: "assistant", content: answer.slice(0, 20000) });
     if (task) session.lastTask = task.id;
   }
+  const ansAgent = agent || (task && idx.agent[task.agent]);
   conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok done");
   finish();
+  // notice lasting facts about you in what you said, and offer to remember them
+  if (answer && ansAgent?.id !== "private") window.suggestMemory?.(text, ansAgent ? effModelId(ansAgent) : null);
 
   function finish(msg) {
     if (msg) conLine(msg, "sys dim");

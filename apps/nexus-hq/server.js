@@ -113,19 +113,23 @@ function withImages(provider, messages) {
     return { role: x.role, content: [{ type: "text", text: x.content }, ...imgs.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mime};base64,${i.b64}` } }))] };
   });
 }
-// Which local models can see images (asked from Ollama once, then cached)
-const visionCache = new Map();
-async function ollamaVision(model) {
-  const c = visionCache.get(model);
+// What each local model can do (asked from Ollama once, then cached): see images, use tools
+const capsCache = new Map();
+async function ollamaCaps(model) {
+  const c = capsCache.get(model);
   if (c && Date.now() - c.at < 10 * 60e3) return c.v;
-  let v = false;
+  let v = { vision: false, tools: false };
   try {
     const r = await fetch(`${OLLAMA_URL}/api/show`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }), signal: AbortSignal.timeout(3000) });
-    if (r.ok) { const j = await r.json(); v = (j.capabilities || []).includes("vision") || !!j.projector_info || /clip|mllama|vision/i.test(JSON.stringify(j.details || {})); }
+    if (r.ok) {
+      const j = await r.json(), caps = j.capabilities || [];
+      v = { vision: caps.includes("vision") || !!j.projector_info || /clip|mllama|vision/i.test(JSON.stringify(j.details || {})), tools: caps.includes("tools") || /\.Tools|tool_call/i.test(String(j.template || "")) };
+    }
   } catch {}
-  visionCache.set(model, { v, at: Date.now() });
+  capsCache.set(model, { v, at: Date.now() });
   return v;
 }
+const ollamaVision = async (model) => (await ollamaCaps(model)).vision;
 
 // ---------- providers ----------
 // Each yields {type:"delta", text} and finally {type:"usage", input, output}
@@ -179,22 +183,44 @@ async function* streamAnthropic(m, messages, system, signal) {
 // Keep models loaded between questions so replies start fast (Ollama's default unloads after 5 minutes)
 const KEEP_ALIVE = env("OLLAMA_KEEP_ALIVE", "30m");
 async function* streamOllama(m, messages, system, signal, opts = {}) {
+  // Tools (web search, notes, lab, calculator, code sandbox) if this model supports them
+  const names = opts.tools?.length && tools && (await ollamaCaps(m.model)).tools ? opts.tools : [];
+  if (names.length) system = `${system ? system + "\n\n" : ""}${toolGuide(names)}`;
   const msgs = system ? [{ role: "system", content: system }, ...withImages("ollama", messages)] : withImages("ollama", messages);
   const body = { model: m.model, stream: true, messages: msgs, keep_alive: KEEP_ALIVE, options: { num_ctx: NUM_CTX, ...(opts.num_predict ? { num_predict: opts.num_predict } : {}) } };
   if (m.think !== undefined) body.think = m.think;
-  let res;
-  try {
-    res = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  } catch (e) {
-    if (e.name === "AbortError") throw e;
-    throw new Error(`Can't reach Ollama at ${OLLAMA_URL}. Is it running? (ollama serve)`);
+  if (names.length) body.tools = tools.defs(names);
+  const MAX_ROUNDS = 6;
+  let input = 0, output = 0;
+  for (let round = 0; ; round++) {
+    if (round === MAX_ROUNDS) delete body.tools; // last round: answer with what it has
+    let res;
+    try {
+      res = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch (e) {
+      if (e.name === "AbortError") throw e;
+      throw new Error(`Can't reach Ollama at ${OLLAMA_URL}. Is it running? (ollama serve)`);
+    }
+    if (!res.ok) throw new Error(`Ollama ${res.status}: ${await failText(res)}`);
+    const calls = []; let said = "";
+    for await (const ev of ndjson(res.body)) {
+      if (ev.error) throw new Error(`Ollama: ${ev.error}`);
+      if (ev.message?.content) { said += ev.message.content; yield { type: "delta", text: ev.message.content }; }
+      if (ev.message?.tool_calls?.length) calls.push(...ev.message.tool_calls);
+      if (ev.done) { input += ev.prompt_eval_count || 0; output += ev.eval_count || 0; }
+    }
+    if (!calls.length || !body.tools) break;
+    body.messages.push({ role: "assistant", content: said, tool_calls: calls });
+    if (said.trim()) yield { type: "delta", text: "\n\n" };
+    for (const c of calls.slice(0, 4)) {
+      const name = c.function?.name, args = c.function?.arguments || {};
+      yield { type: "tool", name, label: tools.say(name, args) };
+      const r = await tools.run(name, args);
+      yield { type: "toolResult", name, summary: r.summary, ok: r.ok !== false, ...(r.sources ? { sources: r.sources.map((x) => ({ title: x.title, url: x.url, snippet: x.snippet })) } : {}), ...(r.notes ? { notes: r.notes } : {}), ...(r.run ? { run: r.run } : {}) };
+      body.messages.push({ role: "tool", content: String(r.text).slice(0, 16000), tool_name: name });
+    }
   }
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await failText(res)}`);
-  for await (const ev of ndjson(res.body)) {
-    if (ev.error) throw new Error(`Ollama: ${ev.error}`);
-    if (ev.message?.content) yield { type: "delta", text: ev.message.content };
-    if (ev.done) yield { type: "usage", input: ev.prompt_eval_count, output: ev.eval_count };
-  }
+  yield { type: "usage", input, output };
 }
 
 // OpenRouter: one key for both cloud models (OpenAI-compatible chat completions)
@@ -345,6 +371,13 @@ const semantic = vault && !/^(off|0|false|no)$/i.test(env("EMBED_MODEL", "nomic-
   ? makeSemantic({ vault, ollamaUrl: OLLAMA_URL, model: env("EMBED_MODEL", "nomic-embed-text"), cacheFile: path.join(__dirname, "data", "vault-embeddings.json"), log: (m) => console.log(m) })
   : null;
 if (semantic) setTimeout(() => semantic.ready().then((ok) => ok && semantic.index()).catch(() => {}), 20e3).unref();
+
+// ---- tools the local agents use on their own, including a code sandbox ----
+const { makeSandbox } = require("./lib/sandbox");
+const { makeTools, toolGuide } = require("./lib/tools");
+const sandbox = makeSandbox({ mode: env("SANDBOX", "docker"), log: (m) => console.log(m) });
+const tools = /^(off|0|false|no)$/i.test(env("AGENT_TOOLS", "on")) ? null
+  : makeTools({ webSearch: SEARXNG_URL ? webSearch : null, semantic, vault, homelab, sandbox: sandbox.state.reason === "turned off (SANDBOX=off)" ? null : sandbox });
 
 // ---- faster first replies: load the chat model when the server starts ----
 async function warm(modelId) {
@@ -662,7 +695,7 @@ async function handle(req, res) {
 
   // ---- answers finished while you were away; warm-up; which models are loaded ----
   const cr = url.pathname.match(/^\/api\/chat\/result\/([\w-]{6,40})$/);
-  if (cr) { const j = chatJobs.get(cr[1]); return jsonOut(res, j ? 200 : 404, j ? { text: j.text, done: j.done, model: j.model, ms: j.ms, error: j.error } : { error: "not found" }); }
+  if (cr) { const j = chatJobs.get(cr[1]); return jsonOut(res, j ? 200 : 404, j ? { text: j.text, done: j.done, model: j.model, ms: j.ms, error: j.error, events: j.events || [] } : { error: "not found" }); }
   const cc = url.pathname.match(/^\/api\/chat\/cancel\/([\w-]{6,40})$/);
   if (cc && req.method === "POST") { chatJobs.get(cc[1])?.ac?.abort(); res.writeHead(204); return res.end(); }
   if (url.pathname === "/api/warm" && req.method === "POST") { const b = await readBody(req).catch(() => ({})); warm(String(b.model || "gemma")); return jsonOut(res, 200, { ok: true }); }
@@ -814,7 +847,7 @@ async function handle(req, res) {
       return res.end(JSON.stringify({ error: `agents.json could not be read: ${e.message}` }));
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), vault: vault ? { enabled: true, name: vault.name, notes: vault.list().length, search: semantic ? "meaning" : "keywords" } : { enabled: false }, homelab: homelab ? homelab.chip() : { configured: false }, push: { enabled: !!push, devices: push?.count() || 0 }, spend: spendInfo() }));
+    return res.end(JSON.stringify({ ...org, models: await status(), web: { enabled: !!SEARXNG_URL }, github: github ? { enabled: true, ...github.state } : { enabled: false }, memory: readMemory(), vault: vault ? { enabled: true, name: vault.name, notes: vault.list().length, search: semantic ? "meaning" : "keywords" } : { enabled: false }, homelab: homelab ? homelab.chip() : { configured: false }, tools: tools ? { names: await tools.available(), sandbox: { enabled: sandbox.state.enabled, reason: sandbox.state.reason } } : { names: [] }, push: { enabled: !!push, devices: push?.count() || 0 }, spend: spendInfo() }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/models") {
@@ -854,13 +887,16 @@ async function handle(req, res) {
     const t0 = Date.now();
     let ttft = null;
     try {
-      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined };
+      let toolNames = [];
+      if (tools && Array.isArray(body.tools) && body.tools.length) { const have = await tools.available(); toolNames = body.tools.filter((n) => have.includes(n)); }
+      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames };
       for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal, popts)) {
         if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; if (job) job.text += ev.text; if (!clientGone) send(ev); }
         else if (ev.type === "usage") {
           send({ type: "usage", input: ev.input ?? null, output: ev.output ?? null });
           if (m.budgeted) { const usd = costOf(m, ev); addSpend(usd); send({ type: "cost", usd, ...spendInfo() }); }
         }
+        else if (ev.type === "tool" || ev.type === "toolResult") { if (job) (job.events ||= []).push(ev); if (!clientGone) send(ev); }
       }
       if (!clientGone) send({ type: "done", ms: Date.now() - t0, ttft, model: m.id });
       if (job) { job.done = true; job.model = m.id; job.ms = Date.now() - t0; }

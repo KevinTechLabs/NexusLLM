@@ -40,6 +40,9 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - The **Photos** tab is a gallery of everything you've added, shared by your phone and PC: grouped by day, full-screen viewer, swipe, download, delete, and **Ask about it**. Select up to 4 to ask about together.
   - Photos are shrunk to 1600px before upload and saved in `~/Documents/NexusPhotos`, so they're also in a normal folder on the PC. Pictures you copy into that folder show up in the tab too.
   - With Opus on, a photo sent to Opus costs about 1¢.
+- **Agents that use tools:** the local agents decide for themselves when to search the web, search or read your notes, check your lab, do exact math, or run code. The console shows each step ("🌐 searching the web…", "▶ running python in the sandbox · ✓"). `/tools off` turns it off.
+- **Code that's been tested:** the Builder and Debugger run their code in a locked sandbox (no internet, none of your files, 20 seconds, 512 MB), read the errors, fix them and run it again before you see it. Tap **show code and output** to see the test.
+- **Memory suggestions:** when you mention something lasting about yourself ("my NAS is called backup-nas", "I prefer short answers"), Nexus HQ offers to remember it. Nothing is saved unless you tap **Remember**, and facts you say No to aren't offered again. `/automemory off` turns it off.
 - **Homelab awareness:** ask "is anything down?", "how hot is the GPU?", "any new alerts?" or "what's my power bill this month?" and the agents answer from live NexusLab and Sentinel data. Say "restart pihole" or "ack alert A-1043" and Nexus HQ asks you to confirm first. A **Lab** chip shows machines up and open alerts.
 - **Smarter vault search:** notes are found by meaning, not just matching words ("what should I cook tonight" finds *Weeknight dinner*), using the local `nomic-embed-text` model. Falls back to keyword search if it isn't installed.
 - **Phone notifications:** a notification when an answer finishes while you're away, when a critical or high alert comes in, and when a machine goes offline or comes back. If the phone puts the app to sleep mid-answer, the answer keeps going on the PC and shows up when you come back.
@@ -151,6 +154,18 @@ SENTINEL_URL=http://<lab-server>:<port>
 ```
 
 Container restart/stop/start only works on machines where NexusLab has Docker control turned on, and always asks you first.
+
+### Code sandbox
+
+Agents test code in throwaway Docker containers. Once:
+
+```bash
+docker pull python:3.12-slim node:22-slim
+groups | grep -q docker || sudo usermod -aG docker $USER   # let Nexus HQ start containers
+sudo systemctl restart nexus-hq
+```
+
+Each run has no network, a read-only system, a non-root user, 1 CPU, 512 MB and a 20-second limit, and only sees the one file being tested. Being in the `docker` group is effectively admin access on that PC, which is fine for a personal machine. `SANDBOX=off` in `.env` turns code running off. Type `/tools` to check it's ready.
 
 ### Smarter vault search
 
