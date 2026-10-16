@@ -5,11 +5,14 @@ services:
     container_name: ollama
     restart: unless-stopped
 
+    # only reachable from this PC; Open WebUI uses the Docker network (http://ollama:11434)
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
 
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
 
     volumes:
       - ollama_data:/root/.ollama
