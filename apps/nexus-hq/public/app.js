@@ -1353,7 +1353,7 @@ async function dispatch(raw) {
     session.history.push({ role: "user", content: text, ...(images.length ? { images } : {}) }, { role: "assistant", content: answer.slice(0, 20000) });
     if (task) session.lastTask = task.id;
   }
-  conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok");
+  conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok done");
   finish();
 
   function finish(msg) {
@@ -1869,7 +1869,7 @@ async function ghJob(label, fn) {
   con.busy = true; con.ac = new AbortController();
   const t0 = Date.now();
   conStatus(label, true);
-  try { await fn(con.ac.signal); conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok"); }
+  try { await fn(con.ac.signal); conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok done"); }
   catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
   con.busy = false; con.ac = null; setHot([]); conStatus("idle"); saveSession();
 }

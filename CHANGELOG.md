@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ phone layout: slim top bar with a status sheet, bottom tab bar (HQ · Ask · Vault · Photos), chat-style Ask tab, one-line ask bar with a + menu (photos, camera, web search), and an "Answer ready" bubble on the HQ tab.
+
 - Nexus HQ photos: attach photos or take them with the phone camera, Gemma 4 12B looks at them (and stands in for models that can't see), Photos tab gallery shared by phone and PC, photos embedded in saved notes.
 
 - Nexus HQ Obsidian vault: Vault tab (graph, reader, search, tags, memory), "save this to my notes", "make a note about ...", repo notes with automatic merge logs, relevant notes given to agents, no duplicate notes, `Memory.md` as editable memory, `Private/` folder never read by agents.

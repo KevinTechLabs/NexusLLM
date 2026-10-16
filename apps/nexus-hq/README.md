@@ -38,6 +38,13 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - The **Photos** tab is a gallery of everything you've added, shared by your phone and PC: grouped by day, full-screen viewer, swipe, download, delete, and **Ask about it**. Select up to 4 to ask about together.
   - Photos are shrunk to 1600px before upload and saved in `~/Documents/NexusPhotos`, so they're also in a normal folder on the PC. Pictures you copy into that folder show up in the tab too.
   - With Opus on, a photo sent to Opus costs about 1¢.
+- **Phone app layout:** on the iPhone, Nexus HQ looks like a native app:
+  - a slim top bar with a status pill (models, GitHub, Compare, log out)
+  - a bottom tab bar: **HQ** (map plus the Chat and Coding departments), **Ask** (full-screen chat with message bubbles), **Vault** and **Photos**
+  - a clean ask bar with a **+** menu for the photo library, camera and web search
+  - ask from the HQ tab to watch the map work; an "Answer ready" bubble takes you to the answer
+
+  The PC layout is unchanged.
 - **You're the only contributor:** every commit is authored by you with your private GitHub email, and any "Co-authored-by" or AI credit line is stripped from commit messages and pull requests automatically.
 - **Projects:** `/project new name`, **Save** buttons on code blocks (or `/save`), `/files`, and `/publish repo`. An empty repo gets an initial commit; a repo with code gets a pull request.
 - **Login screen:** themed, with logout. The password is checked server-side with a timing-safe comparison.

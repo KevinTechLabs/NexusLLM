@@ -627,3 +627,117 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
   .pl-nav{display:none}
 }
 @media (prefers-reduced-motion:reduce){.spin,.p-lens,.p-skel{animation:none}}
+
+/* =====================================================================
+   Phone app layout (≤760px): slim top bar · bottom tab bar · clean ask bar
+   ===================================================================== */
+.status-pill,.hq-seg,.tabbar,.con-plus,.plus-menu,.ask-peek,.sheet,.sheet-back{display:none}
+@media (max-width:760px){
+  :root{--tabbar-h:calc(58px + env(safe-area-inset-bottom))}
+  body{font-size:13px}
+  #app{height:100dvh;padding-bottom:var(--tabbar-h)}
+
+  /* top bar: name + one status pill */
+  #top{flex-wrap:nowrap;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;border-bottom:1px solid var(--line);background:#060a14e6;backdrop-filter:blur(10px)}
+  #top .kicker,#top .stats,#nav,.models,.logout-btn,#app.con-full .brand .kicker{display:none!important}
+  .brand h1{font-size:16px;margin:0}
+  .caret{width:.45em;height:.85em}
+  .status-pill{display:inline-flex;align-items:center;gap:7px;margin-left:auto;padding:5px 11px;border:1px solid var(--line2);border-radius:20px;font-size:11px;color:var(--muted);background:#0a1122}
+  .status-pill i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .status-pill.warn i{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+
+  /* HQ tab: Map / Chat / Coding switcher */
+  body[data-tab="hq"] .hq-seg{display:flex;margin:10px 14px 0;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:#0a1122}
+  .hq-seg button{flex:1;padding:8px 0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .hq-seg button.on{background:var(--white);color:var(--bg);font-weight:700}
+
+  /* main area fills the screen, no frames */
+  #viewport{margin:10px 0 0;border:0;border-radius:0;background:transparent}
+  body[data-tab="hq"] #viewport{margin:8px 8px 0;border:1px solid var(--line);border-radius:10px}
+  #deptSwitch{bottom:10px}
+
+  /* bottom tab bar */
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;height:var(--tabbar-h);padding:6px 6px env(safe-area-inset-bottom);background:#060a14f2;backdrop-filter:blur(14px);border-top:1px solid var(--line2)}
+  .tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase;position:relative;border-radius:10px}
+  .tabbar svg{width:22px;height:22px}
+  .tabbar button.on{color:var(--white)}
+  .tabbar button.on svg{filter:drop-shadow(0 0 6px currentColor)}
+  .tabbar button[data-tab="ask"].on{color:var(--chat)}
+  .tabbar button[data-tab="vault"].on{color:var(--vault)}
+  .tabbar button[data-tab="photos"].on{color:var(--photo)}
+  .tab-dot{position:absolute;top:4px;left:calc(50% + 8px);width:8px;height:8px;border-radius:50%;background:var(--chat);box-shadow:0 0 8px var(--chat)}
+  .tab-dot[hidden]{display:none}
+
+  /* console: on HQ it's just the ask bar; on Vault/Photos it's hidden; Ask tab = full chat */
+  .console{margin:8px;border-radius:14px;border-color:var(--line2)}
+  .console .con-head,.console .con-body,.con-tray:not([hidden]){display:none}
+  body[data-tab="vault"] .console,body[data-tab="photos"] .console{display:none}
+  #app.con-full .console{margin:0;border:0;border-radius:0;flex:1;min-height:0;background:transparent}
+  #app.con-full .console .con-head{display:flex;padding:8px 12px;gap:8px;border-bottom:1px solid var(--line)}
+  #app.con-full .console .con-body{display:flex;flex:1;min-height:0}
+  #app.con-full .con-tray:not([hidden]){display:flex}
+  #app.con-full .con-log{height:auto;flex:1;padding:12px 14px 16px;font-size:13px;gap:6px}
+  .con-head .kicker,#conFullBtn,#conToggle{display:none!important}
+  #app.con-full .con-title{display:block;font-size:13px;color:var(--white);font-weight:700}
+  .con-status{font-size:0;gap:0}
+  .con-status::before{width:8px;height:8px}
+  .con-btn{padding:6px 10px;border-radius:6px;font-size:10.5px}
+  .con-log .out{border-radius:10px;padding:10px 12px;background:#0a1224}
+  .con-log .ln.cmd{margin-top:10px;align-self:flex-end;max-width:88%;background:#13204a;border:1px solid var(--line2);border-radius:14px 14px 4px 14px;padding:8px 12px}
+  .con-log .ln.cmd .prompt{display:none}
+  .con-log .ln.sys{font-size:11.5px;color:var(--muted)}
+  .con-log .ln.done{display:none}
+  .p-check{width:18px;height:18px;opacity:.55!important;font-size:10px}
+  .p-tile.on .p-check{opacity:1!important}
+
+  /* the input row: [+] [ input ] [send] */
+  .con-input{gap:8px;padding:8px;border-top:0;align-items:center}
+  #app.con-full .con-input{padding:8px 10px 10px;border-top:1px solid var(--line)}
+  .con-input .con-web,.con-input .con-ico,.con-input .prompt{display:none!important}
+  .con-plus{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);color:var(--white);font-size:22px;line-height:1;background:#0a1122}
+  #conInput{flex:1;min-width:0;height:40px;padding:0 14px;border:1px solid var(--line2);border-radius:20px;background:#070d1b;font-size:16px}
+  #conInput:focus{border-color:var(--chat)}
+  #conRun{flex:none;width:40px;height:40px;padding:0;border-radius:50%;font-size:0;display:grid;place-items:center;background:var(--chat);border-color:var(--chat)}
+  #conRun::before{content:"";width:14px;height:14px;background:var(--bg);clip-path:polygon(50% 0,100% 55%,62% 55%,62% 100%,38% 100%,38% 55%,0 55%)}
+  .console:has(.con-status.busy) #conRun{background:var(--bad);border-color:var(--bad)}
+  .console:has(.con-status.busy) #conRun::before{clip-path:none;width:12px;height:12px;border-radius:2px}
+
+  /* + menu */
+  .plus-menu:not([hidden]){display:flex;flex-direction:column;position:absolute;left:10px;bottom:62px;z-index:45;min-width:210px;padding:6px;border:1px solid var(--line2);border-radius:14px;background:#0b1328f7;backdrop-filter:blur(12px);box-shadow:0 18px 50px #000c}
+  .plus-menu button{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;font-size:13px;color:var(--text);text-align:left}
+  .plus-menu button:active{background:#13204a}
+  .plus-menu svg{width:18px;height:18px;color:var(--photo)}
+  .plus-menu [data-plus="web"] svg{color:var(--chat)}
+  .console{position:relative;z-index:30;overflow:visible}
+
+  /* "working…" / "answer ready" peek */
+  .ask-peek:not([hidden]){display:flex;align-items:center;gap:8px;position:absolute;left:50%;transform:translateX(-50%);bottom:64px;z-index:44;padding:7px 14px;border-radius:20px;border:1px solid var(--line2);background:#0b1328f2;box-shadow:0 10px 30px #0009;font-size:12px;color:var(--text);white-space:nowrap;max-width:92%}
+  .ask-peek.ready{border-color:var(--chat);color:var(--chat)}
+  .ask-peek b{color:var(--white);font-weight:600}
+  .pk-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);animation:blink .8s steps(2) infinite}
+
+  /* attached-photo tray in the Ask tab */
+  #app.con-full .con-tray{padding:8px 12px 0;border-top:1px solid var(--line)}
+
+  /* status sheet */
+  .sheet-back:not([hidden]){display:block;position:fixed;inset:0;z-index:70;background:#0008}
+  .sheet:not([hidden]){display:block;position:fixed;left:0;right:0;bottom:0;z-index:71;max-height:80dvh;overflow:auto;padding:6px 16px calc(env(safe-area-inset-bottom) + 18px);background:#0b1328;border-top:1px solid var(--line2);border-radius:18px 18px 0 0;transform:translateY(100%);transition:transform .2s ease}
+  .sheet.open{transform:none}
+  .sh-grip{width:40px;height:4px;border-radius:2px;background:var(--line2);margin:4px auto 10px}
+  .sh-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .sh-head b{font-size:15px;color:var(--white)}
+  .sh-sec{padding:10px 0;border-top:1px solid var(--line)}
+  .sh-sec .kicker{display:block;margin-bottom:8px}
+  .sh-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .sh-chips .mchip{font-size:12px;padding:6px 10px}
+  .sh-sec p{margin:8px 0 0;font-size:11px}
+  .sh-row{display:flex;justify-content:space-between;width:100%;padding:13px 2px;border-bottom:1px solid #111b33;font-size:14px;color:var(--text);text-decoration:none}
+  .sh-row span{color:var(--muted)}
+  .sh-row.bad{color:var(--bad)}
+
+  /* Vault + Photos: edge to edge like a native app */
+  .v-head,.p-head{padding:10px 12px}
+  .v-title .kicker,.p-title .kicker{display:none}
+  .p-title b,.v-title b{font-size:17px}
+}
+@media (max-width:760px) and (prefers-reduced-motion:reduce){.pk-dot{animation:none}.sheet{transition:none}}
