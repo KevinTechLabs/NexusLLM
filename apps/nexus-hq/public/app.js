@@ -543,6 +543,12 @@ function systemFor(agent, task) {
   const house = [st.all, agent.dept === "code" ? st.code : st.chat].filter(Boolean).join("\n\n");
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   let s = `Today's date is ${today}.\n\n` + (house ? house + "\n\n" : "") + (agent.prompt || "");
+  s += `\n\nYou run inside Nexus HQ, the user's own dashboard. The app itself (not you) handles these when the user phrases them this way, so if one of these requests reaches you, tell them the exact words to use instead of saying you can't:
+- GitHub: "read my <repo> repo", "add <something> to my <repo> repo", "show my repos", "add all my repos to my vault"
+- Notes (Obsidian vault): "save this to my notes", "make a note about <topic>"
+- Memory: "remember that <fact>", "what do you remember", "forget <n>"
+- Photos: the + / photo buttons next to the input
+Messages in this conversation marked as app actions really happened; use them to understand follow-ups like "all of them".`;
   const mem = (D.memory || []).map((m) => `- ${m.text}`).join("\n");
   if (mem) s += `\n\nThings the user has asked you to remember (use them whenever relevant; don't recite them unprompted):\n${mem}`;
   if (task) {
@@ -1251,6 +1257,25 @@ async function dispatch(raw) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
     return saveSession();
   }
+  // An answer to a question Nexus HQ just asked ("Which repo?" -> "all of them" / "NexusLLM")
+  if (session.pending && !images.length && !/^[\/@]/.test(q)) {
+    const p = session.pending; session.pending = null;
+    const t = q.toLowerCase().trim();
+    try {
+      if (/^(all|all of (them|em|my repos)|them all|every\s?(one|thing)|each( one)?|both|(yes,? )?(do )?all( of them| repos| my repos)?)\b/.test(t)) {
+        if (p.want === "read" || /\b(vault|notes?|obsidian|remember|memor)/i.test(p.q)) { await repoNotesAll(`${p.q} (all of them)`); return saveSession(); }
+        conLine("I make repo changes one repo at a time, so you can check each diff. Name one to start with, e.g. <b>NexusLLM</b>.", "sys");
+        session.pending = p; rememberTurn(q, "Asked which single repo to change first."); return saveSession();
+      }
+      const pick = (await Promise.all(t.split(/[\s,]+/).map((w) => knownRepo(w)))).find(Boolean);
+      if (pick) {
+        store.set("hq.repo", pick); session.repo = pick; session.ghTurn = session.items.filter((i) => i.k === "cmd").length; session.ghLast = p.q;
+        conLine(`GitHub → <b>${esc(pick)}</b> · ${p.want === "read" ? "reading" : "preparing a change"}`, "sys");
+        await (p.want === "read" ? ghReview(pick, p.q) : ghUpdate(pick, p.q));
+        return saveSession();
+      }
+    } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); return saveSession(); }
+  }
   const memCmd = images.length ? false : await memoryCommand(q);
   if (memCmd) return saveSession();
   if (!images.length && vaultOn() && await noteCommand(q)) return saveSession();
@@ -1258,8 +1283,9 @@ async function dispatch(raw) {
     const gi = await ghIntent(q);
     if (gi) {
       try {
-        if (gi.kind === "ask") conLine(gi.msg, "sys");
-        else if (gi.kind === "list") await ghCommand("/repos");
+        if (gi.kind === "ask") { conLine(gi.msg, "sys"); session.pending = { want: gi.want || "add", q: gi.q || q }; rememberTurn(q, gi.msg); }
+        else if (gi.kind === "allnotes") await repoNotesAll(q);
+        else if (gi.kind === "list") { await ghCommand("/repos"); rememberTurn(q, `Listed your repos: ${(ghRepoList || []).map((r) => r.name).join(", ")}`); }
         else { store.set("hq.repo", gi.repo);
           // A follow-up carries the earlier request with it, so "you didn't remove the readme" makes sense to the Builder
           const ask = gi.follow && session.ghLast ? `Earlier request: ${session.ghLast}\nFollow-up (do this now, on the current files): ${q}` : q;
@@ -1685,6 +1711,51 @@ async function writeNote(agent, ask, fallbackTitle, statusText) {
   return parseNoteReply(r.text, fallbackTitle);
 }
 
+// Keep app actions (GitHub, notes, memory) in the conversation, so the agents understand follow-ups
+function rememberTurn(user, assistant) {
+  const plain = String(assistant || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+  session.history.push({ role: "user", content: user }, { role: "assistant", content: plain.slice(0, 1500) });
+}
+
+// One repo's overview note in Repos/<name>.md (the change log is kept)
+async function writeRepoNote(writer, repoName) {
+  const snap = await jfetch(`/api/github/snapshot?repo=${encodeURIComponent(repoName)}&budget=16000`);
+  if (snap.empty) return { skipped: "empty repo", title: repoName };
+  const note = await writeNote(writer, `Write the "Overview" section of a note about the GitHub repository ${snap.repo}: what it is, how it's organized (key folders and files), how to run or use it, and its current state. Base it only on these files.\n\nAll files:\n${snap.paths.slice(0, 150).join("\n")}\n\n${snap.files.map((f) => `--- ${f.path} ---\n${f.text.slice(0, 3000)}`).join("\n\n")}`, repoName, `${writer.name} writing the ${repoName} note…`);
+  const overview = note.body.replace(/^#\s.*\n+/, "").replace(/^##\s+Overview\s*\n+/i, "");
+  const r = await jfetch("/api/vault/repo", { method: "POST", body: JSON.stringify({ repo: snap.repo, url: snap.url, overview }) });
+  return { ...r, note };
+}
+
+// "add all my repos to my vault": one note per repo, one after another (Stop ends it early)
+async function repoNotesAll(q) {
+  if (!vaultOn()) { conLine("The notes vault is turned off (VAULT_DIR=off in .env), so there's nowhere to save repo notes.", "sys"); return; }
+  const writer = idx.agent.docs || idx.agent.writer || D.agents.find((a) => a.dept === "chat");
+  const { repos } = await jfetch("/api/github/repos");
+  const list = repos.filter((r) => r.size > 0), empty = repos.length - list.length;
+  conLine(`📚 Adding <b>${list.length}</b> repos to your vault, one note each in <b>Repos/</b>${empty ? ` (${empty} empty repo${empty > 1 ? "s" : ""} skipped)` : ""}. Each takes roughly 20–60 seconds on your GPU · press <b>Stop</b> to end early.`, "sys");
+  con.busy = true; con.ac = new AbortController();
+  const done = [], failed = [];
+  try {
+    for (let i = 0; i < list.length; i++) {
+      if (con.ac.signal.aborted) break;
+      const name = list[i].name;
+      conStatus(`${i + 1}/${list.length} · ${name}`, true);
+      try {
+        const r = await writeRepoNote(writer, name);
+        if (con.ac.signal.aborted) break;
+        if (r.skipped) { conLine(`– ${esc(name)}: skipped (${esc(r.skipped)})`, "sys dim"); continue; }
+        done.push(r);
+        conLine(`✓ ${i + 1}/${list.length} <button class="linkbtn" data-note="${esc(r.path)}">${esc(r.title)}</button>`, "sys dim");
+      } catch (e) { if (con.ac.signal.aborted) break; failed.push(name); conLine(`✗ ${esc(name)}: ${esc(e.message)}`, "sys dim"); }
+    }
+  } finally { con.busy = false; con.ac = null; setHot([]); conStatus("idle"); }
+  const stopped = done.length + failed.length < list.length;
+  conLine(`📚 ${stopped ? "Stopped. " : ""}<b>${done.length}</b> repo note${done.length === 1 ? "" : "s"} in your vault${failed.length ? ` · couldn't read ${failed.map(esc).join(", ")}` : ""}. Open the <b>Vault</b> tab to see them; I'll use them when you ask about your projects.`, "sys ok");
+  rememberTurn(q, `Saved overview notes for ${done.length} repos into the vault (Repos/ folder): ${done.map((r) => r.title).join(", ")}.${stopped ? " The user stopped it before the rest." : ""}`);
+  try { D.vault.notes = (await jfetch("/api/vault")).notes.length; } catch {}
+}
+
 // "save this to my notes", "make a note about ...", "note this"
 async function noteCommand(q) {
   const saveRe = /^(?:please\s+)?(?:can you\s+|could you\s+)?(?:save|add|put|store|keep|copy|send)\s+(?:this|that|it|the (?:last )?answer|this answer|that answer)(?:\s+(?:to|in|into|as)\s+(?:a\s+)?(?:my\s+)?(?:notes?|obsidian|vault))?\s*[.!?]*$|^(?:note this|save (?:to|in) (?:my )?(?:notes|obsidian|vault))\s*[.!?]*$/i;
@@ -1705,17 +1776,17 @@ async function noteCommand(q) {
       if (out.sources?.length) note.body += `\n\n## Sources\n${out.sources.map((x) => `- [${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join("\n")}`;
       const r = await jfetch("/api/vault/note", { method: "POST", body: JSON.stringify({ ...note, key: question + (qItem?.images?.length ? ` ${qItem.images.join(" ")}` : ""), source: "nexus-hq answer", attachments: qItem?.images || [] }) });
       conLine(noteCard(r, note), "sys ok");
+      rememberTurn(q, `Saved the last answer as the note "${r.title}" in the vault (${r.mode}).`);
     } else {
       const topic = mk[1].trim();
+      if (ghEnabled() && /\b(all|every|each)\b.*\b(repos|repositories|projects)\b/i.test(topic)) { con.busy = false; con.ac = null; await repoNotesAll(q); return true; }
       // "make a note about my X repo" -> the repo's note in Repos/ (overview kept, change log untouched)
       const repoName = ghEnabled() ? (await knownRepo((topic.match(/\b([\w.-]+)\s+repo\b/i) || [])[1]) || (await ghIntent(topic))?.repo) : null;
       if (repoName && /\brepo\b/i.test(topic)) {
         conLine(`📦 reading <b>${esc(repoName)}</b> from GitHub…`, "sys");
-        const snap = await jfetch(`/api/github/snapshot?repo=${encodeURIComponent(repoName)}&budget=16000`);
-        const note = await writeNote(writer, `Write the "Overview" section of a note about the GitHub repository ${snap.repo}: what it is, how it's organized (key folders and files), how to run or use it, and its current state. Base it only on these files.\n\nAll files:\n${snap.paths.slice(0, 150).join("\n")}\n\n${snap.files.map((f) => `--- ${f.path} ---\n${f.text.slice(0, 3000)}`).join("\n\n")}`, repoName, `${writer.name} writing repo note…`);
-        const overview = note.body.replace(/^#\s.*\n+/, "").replace(/^##\s+Overview\s*\n+/i, "");
-        const r = await jfetch("/api/vault/repo", { method: "POST", body: JSON.stringify({ repo: snap.repo, url: snap.url, overview }) });
-        conLine(noteCard({ ...r, mode: "updated" }, note, `<br><span class="dim">One note per repo: the overview is refreshed and the merge log is kept.</span>`), "sys ok");
+        const r = await writeRepoNote(writer, repoName);
+        if (r.skipped) conLine(`<b>${esc(repoName)}</b> is empty, so there's nothing to write a note about yet.`, "sys");
+        else { conLine(noteCard({ ...r, mode: "updated" }, r.note, `<br><span class="dim">One note per repo: the overview is refreshed and the merge log is kept.</span>`), "sys ok"); rememberTurn(q, `Saved an overview note for the ${repoName} repo in the vault.`); }
       } else {
         const ctxNotes = await vaultContext(topic);
         const recent = contextTurns(6000, 4).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
@@ -1743,6 +1814,7 @@ async function memoryCommand(q) {
       const text = m[1].replace(/[.?!]+$/, "").trim();
       const r = await jfetch("/api/memory", { method: "POST", body: JSON.stringify({ text }) });
       D.memory = r.items;
+      rememberTurn(q, `Remembered: ${r.item.text}`);
       conLine(`🧠 Got it. I'll remember: <b>${esc(r.item.text)}</b> <span class="dim">(every agent, every chat · /memory to see all)</span>`, "sys ok");
       return true;
     }
@@ -1785,11 +1857,18 @@ async function ghIntent(q) {
   // Neither kind of verb: a question ("what's in my X repo?") reads; anything else is a change request
   const question = /^\s*(what|how|why|is|are|does|do|which|where|who|when|tell me|explain|show)\b/.test(t);
   const kind = ri === -1 && ai === -1 ? ((named || follow) ? (question ? "read" : "add") : null) : ai === -1 ? "read" : ri === -1 ? "add" : ri < ai ? "read" : "add";
+  // "add all my repos to my vault", "read all my repos", "remember everything in my repos"
+  const allRepos = !named && /\b(all|every|each|everything in)\b[^.?!]{0,24}\b(repos|repositories|projects)\b|\b(repos|repositories)\b[^.?!]{0,12}\ball\b/.test(t);
+  const vaultish = /\b(vault|notes?|obsidian|remember|memor\w*|learn|know|index|catalog|import|sync)\b/.test(t);
+  if (allRepos && (vaultish || (kind && !/\b(list|show|which|what are|see)\b/.test(t)))) {
+    if (vaultish || kind === "read") return { kind: "allnotes" };
+    return { kind: "ask", want: "add", q, msg: "I make repo changes one repo at a time, so you can check each diff before it goes in. Which repo first? (To have me read and remember all of them, say <b>add all my repos to my vault</b>.)" };
+  }
   if (!named && /\b(repos|repositories)\b/.test(t) && (kind === "read" || /\b(list|show|which|what are|see)\b/.test(t) || !kind)) return { kind: "list" };
   if (!kind) return null;
   const remembered = (D.memory || []).map((m) => m.text.match(/\b(?:main|default|primary)\s+(?:github\s+)?repo(?:sitory)?\s+is\s+([\w.-]+)/i)?.[1]).find(Boolean);
   const repo = named || (follow ? session.repo : null) || curRepo() || (await knownRepo(remembered));
-  if (!repo) return { kind: "ask", msg: `Which repo? Say it by name, e.g. <b>${kind === "read" ? "read my NexusLLM repo" : "add a FAQ to my NexusLLM repo"}</b>. Your repos: ${(ghRepoList || []).slice(0, 12).map((r) => `<b>${esc(r.name)}</b>`).join(", ") || "none found"}.` };
+  if (!repo) return { kind: "ask", want: kind, q, msg: `Which repo? Say it by name, e.g. <b>${kind === "read" ? "read my NexusLLM repo" : "add a FAQ to my NexusLLM repo"}</b>. Your repos: ${(ghRepoList || []).slice(0, 14).map((r) => `<b>${esc(r.name)}</b>`).join(", ") || "none found"}. Or say <b>all of them</b>.` };
   return { kind, repo, follow: !!follow && !named };
 }
 
@@ -1995,6 +2074,7 @@ Never rewrite a long existing file in full. Never copy the BEGIN/END markers or 
     const title = shortAsk.length > 70 ? shortAsk.slice(0, 67) + "…" : shortAsk;
     const card = { k: "pr", repo: snap.repo, title: title[0].toUpperCase() + title.slice(1), instruction, files };
     addItem(card);
+    rememberTurn(shortAsk, `Prepared a change to ${snap.repo} (${files.map((f) => f.path).join(", ")}). It's waiting for the user to tap "Open pull request".`);
   });
 }
 

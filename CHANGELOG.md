@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ: "add all my repos to my vault" (one note per repo). Answers to Nexus HQ's own questions work ("Which repo?" → "all of them" or a repo name). GitHub, notes and memory actions are part of the conversation, so agents understand follow-ups, and agents know the exact phrases the app understands.
+
 - Nexus HQ phone layout: slim top bar with a status sheet, bottom tab bar (HQ · Ask · Vault · Photos), chat-style Ask tab, one-line ask bar with a + menu (photos, camera, web search), and an "Answer ready" bubble on the HQ tab.
 
 - Nexus HQ photos: attach photos or take them with the phone camera, Gemma 4 12B looks at them (and stands in for models that can't see), Photos tab gallery shared by phone and PC, photos embedded in saved notes.

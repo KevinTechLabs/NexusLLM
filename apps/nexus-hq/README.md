@@ -29,6 +29,7 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
 - **Obsidian vault (notes):** a **Vault** tab with an animated graph of your notes and their `[[links]]`, a reader that shows Obsidian callouts, highlights, tags and backlinks, search and tag filters, and your memory list.
   - Say *"save this to my notes"* after an answer, or *"make a note about docker networking"*.
   - Saving the same question or topic again **updates the existing note** instead of making a duplicate.
+  - *"add all my repos to my vault"* writes an overview note for every repo, one after another (Stop ends it early).
   - *"make a note about my NexusLLM repo"* writes that repo's overview into `Repos/NexusLLM.md`, and every **Merge now** adds a line to its change log.
   - When you ask something, Nexus HQ finds your most relevant notes and gives them to the agent (you'll see "📓 using a note from your vault").
   - `Private/` is never searched, never shown to agents and never sent to Opus.
