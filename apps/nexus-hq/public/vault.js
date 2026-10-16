@@ -118,6 +118,8 @@ function obsidianHTML(body) {
   const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const n of nodes) {
     const html = esc(n.nodeValue)
+      .replace(/!\[\[([^\]|#^]+\.(?:jpe?g|png|webp|gif))(?:\|[^\]]*)?\]\]/gi, (_, name) =>
+        `<img class="v-img" src="/api/vaultfile/${encodeURIComponent("Attachments/" + name.trim().split("/").pop())}${authToken ? `?t=${encodeURIComponent(authToken)}` : ""}" alt="${esc(name)}" loading="lazy">`)
       .replace(/!?\[\[([^\]|#^]+)([#^][^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, name, __, alias) => {
         const p = byName.get(name.trim().split("/").pop().toLowerCase());
         return p ? `<button class="wl" data-note="${esc(p)}">${esc(alias || name)}</button>` : `<span class="wl dead" title="No note called ${esc(name)} yet">${esc(alias || name)}</span>`;

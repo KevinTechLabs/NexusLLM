@@ -53,6 +53,15 @@ Commits are always authored as the token owner with their `users.noreply.github.
 | Search | Local keyword ranking (BM25) over titles, tags and text; top 3 notes go to the agent |
 | Duplicates | Same question, topic or title updates the existing note |
 
+## Photos
+
+| Item | Value |
+|---|---|
+| Location | `~/Documents/NexusPhotos` (`PHOTOS_DIR` in `.env`); thumbnails in `.thumbs/`, deleted photos in `.trash/` |
+| Upload | Resized in the browser to 1600px JPEG; 360px thumbnail |
+| Vision | Ollama models are checked for vision support (`/api/show`); Gemma 4 12B sees images, Qwen3-Coder doesn't, so Gemma stands in |
+| Access | Same login as the dashboard; image links carry the session token |
+
 ## Operations
 
 ```bash

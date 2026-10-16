@@ -34,6 +34,10 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - `Private/` is never searched, never shown to agents and never sent to Opus.
   - Remembered facts live in `Memory.md`, so you can edit them in Obsidian too.
   - Note-writing rules are adapted from [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) (MIT).
+- **Photos:** attach photos to any question with the 🖼 button, or take one with 📷 on the phone. On the PC you can also paste or drag a picture into the console. Gemma 4 12B looks at them for free, and if the chosen agent's model can't see images (Qwen3-Coder), Gemma looks for it. Follow-up questions keep the photo, and *"save this to my notes"* embeds it in the note.
+  - The **Photos** tab is a gallery of everything you've added, shared by your phone and PC: grouped by day, full-screen viewer, swipe, download, delete, and **Ask about it**. Select up to 4 to ask about together.
+  - Photos are shrunk to 1600px before upload and saved in `~/Documents/NexusPhotos`, so they're also in a normal folder on the PC. Pictures you copy into that folder show up in the tab too.
+  - With Opus on, a photo sent to Opus costs about 1¢.
 - **You're the only contributor:** every commit is authored by you with your private GitHub email, and any "Co-authored-by" or AI credit line is stripped from commit messages and pull requests automatically.
 - **Projects:** `/project new name`, **Save** buttons on code blocks (or `/save`), `/files`, and `/publish repo`. An empty repo gets an initial commit; a repo with code gets a pull request.
 - **Login screen:** themed, with logout. The password is checked server-side with a timing-safe comparison.

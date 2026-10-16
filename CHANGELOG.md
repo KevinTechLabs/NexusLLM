@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ photos: attach photos or take them with the phone camera, Gemma 4 12B looks at them (and stands in for models that can't see), Photos tab gallery shared by phone and PC, photos embedded in saved notes.
+
 - Nexus HQ Obsidian vault: Vault tab (graph, reader, search, tags, memory), "save this to my notes", "make a note about ...", repo notes with automatic merge logs, relevant notes given to agents, no duplicate notes, `Memory.md` as editable memory, `Private/` folder never read by agents.
 
 - Nexus HQ understands more ways to ask for repo changes ("get rid of", "clean up", "keep only", ...), keeps follow-ups on the same repo for your next few messages, and passes the earlier request along with the follow-up.

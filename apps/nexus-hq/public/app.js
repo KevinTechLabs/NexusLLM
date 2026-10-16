@@ -292,6 +292,7 @@ function renderView() {
   const W = vp.clientWidth, H = vp.clientHeight;
   if (W < 60 || H < 60) return; // map is hidden (e.g. full-screen console); draw it when it comes back
   if (view === "vault") { $("#deptSwitch").hidden = true; return renderVault(stage); }
+  if (view === "photos") { $("#deptSwitch").hidden = true; return renderPhotos(stage); }
   if (view === "map") renderMap(stage, W, H); else renderTree(stage, view, W, H);
   $("#deptSwitch").hidden = view === "map";
   if (view !== "map") $("#deptName").textContent = idx.dept[view]?.name || view;
@@ -794,7 +795,7 @@ function go(v) {
 }
 function fromHash() {
   const h = location.hash.slice(1) || "map";
-  view = h === "map" || h === "vault" || idx.dept[h] || !D ? h : "map";
+  view = h === "map" || h === "vault" || h === "photos" || idx.dept[h] || !D ? h : "map";
   if (D) { renderChrome(); renderView(); }
 }
 addEventListener("hashchange", fromHash);
@@ -926,7 +927,7 @@ function itemEl(it) {
   }
   const d = document.createElement("div");
   d.className = `ln ${it.k === "cmd" ? "cmd" : it.cls || ""}`;
-  const body = it.k === "cmd" ? `<span class="prompt">nexus@hq:~$</span> ${esc(it.text)}` : it.html;
+  const body = it.k === "cmd" ? `<span class="prompt">nexus@hq:~$</span> ${esc(it.text)}${it.images?.length ? `<span class="ln-imgs">${it.images.map((n) => `<button type="button" data-photo="${esc(n)}"><img src="${esc(photoUrl(n, true))}" alt="photo" loading="lazy"></button>`).join("")}</span>` : ""}` : it.html;
   d.innerHTML = `<span class="ts">${tfmt(it.t)}</span><span class="tx">${body}</span>`;
   return d;
 }
@@ -1008,9 +1009,9 @@ function outBlock(agent, sources) {
     },
   };
 }
-async function work(agent, system, messages, signal, sources) {
+async function work(agent, system, messages, signal, sources, opts = {}) {
   const own = idx.model[agent.model];
-  if (agent.fallback && effModelId(agent) !== agent.model) {
+  if (!opts.model && agent.fallback && effModelId(agent) !== agent.model) {
     const sp = D.spend || {};
     const why = !own ? "isn't set up (no API key)" : own.overBudget
       ? (sp.monthly != null && sp.month >= sp.monthly ? `hit this month's $${sp.monthly.toFixed(2)} limit` : `hit today's $${(sp.daily ?? 0).toFixed(2)} limit`)
@@ -1018,7 +1019,7 @@ async function work(agent, system, messages, signal, sources) {
     conLine(`${esc(own?.label || ({ opus: "Claude Opus", gpt: "GPT" }[agent.model] || agent.model))} ${why}, so ${esc(modelOf(agent).label)} is standing in`, "sys dim");
   }
   const ob = outBlock(agent, sources);
-  const r = await streamChat(effModelId(agent), system, messages, signal, (t) => ob.update(t), { fallback: agent.fallback, onNote: (t) => conLine(esc(t), "sys dim") });
+  const r = await streamChat(opts.model || effModelId(agent), system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim") });
   ob.done(r, sources);
   return r;
 }
@@ -1195,8 +1196,11 @@ function contextTurns(maxChars = 24000, maxTurns = 12) {
   const out = []; let total = 0;
   for (const m of [...session.history].reverse().slice(0, maxTurns)) {
     if (total + m.content.length > maxChars) break;
-    out.unshift({ role: m.role, content: m.content }); total += m.content.length;
+    out.unshift({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) }); total += m.content.length;
   }
+  // only the most recent photos travel with the conversation (keeps local models fast and Opus cheap)
+  let seen = false;
+  for (let i = out.length - 1; i >= 0; i--) if (out[i].images) { if (seen) delete out[i].images; seen = true; }
   return out;
 }
 
@@ -1207,6 +1211,7 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 <b>/web</b> question    search the web first, whatever the web setting
 GitHub: just ask, e.g. <b>read my NexusLLM repo</b> · <b>add a FAQ to my NexusLLM repo</b> · <b>show my repos</b>
 Memory: <b>remember that</b> ... · <b>what do you remember</b> · <b>forget</b> 2 (or forget the one about ...)
+Photos: 🖼 attach or 📷 take a photo (phone), paste or drop one on the PC, then ask about it · <b>Photos</b> tab
 Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the <b>Vault</b> tab to browse them
 <b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
 <b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
@@ -1221,8 +1226,11 @@ Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the
 <b>/logout</b>           sign this device out            <b>/help</b>  show this`;
 
 async function dispatch(raw) {
-  const q = raw.trim();
+  const images = (con.att || []).filter((a) => a.name).map((a) => a.name);
+  let q = raw.trim();
+  if (!q && images.length) q = images.length > 1 ? "What's in these photos?" : "What's in this photo?";
   if (!q || !D) return;
+  if (images.length) { con.att = []; renderTray(); }
   conOpen(true); drawerOpen(false);
 
   if (q === "/new" || q === "/clear" || q === "clear") return startNewChat();
@@ -1237,16 +1245,16 @@ async function dispatch(raw) {
     conLine(on ? "Claude Opus is <b>on</b>. Architect, Reviewer and Advisor use it again." : "Claude Opus is <b>off</b>. Architect and Reviewer use Qwen3-Coder 30B and Advisor uses Gemma 4 12B.", "sys ok");
     return saveSession();
   }
-  addItem({ k: "cmd", text: q });
+  addItem({ k: "cmd", text: q, ...(images.length ? { images } : {}) });
   if (q === "/help" || q === "help") return conLine(`<pre class="help">${HELP}</pre>`, "sys");
   if (/^\/(github|repos|repo|review|update|project|files|save|publish)\b/.test(q)) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
     return saveSession();
   }
-  const memCmd = await memoryCommand(q);
+  const memCmd = images.length ? false : await memoryCommand(q);
   if (memCmd) return saveSession();
-  if (vaultOn() && await noteCommand(q)) return saveSession();
-  if (!/^[\/@]/.test(q) && ghEnabled()) {
+  if (!images.length && vaultOn() && await noteCommand(q)) return saveSession();
+  if (!images.length && !/^[\/@]/.test(q) && ghEnabled()) {
     const gi = await ghIntent(q);
     if (gi) {
       try {
@@ -1324,7 +1332,8 @@ async function dispatch(raw) {
       let content = `${earlier}${i === 0 ? webText : ""}Request:\n${text}`;
       outs.forEach((o, k) => { content += `\n\n--- Step ${k + 1}: ${idx.agent[task.chain[k].agent].name} (${task.chain[k].do}) ---\n${isLean(ag) ? o.slice(0, 9000) : o}`; });
       content += `\n\nYour step (${i + 1} of ${task.chain.length}): ${s.do}`;
-      const r = await work(ag, systemFor(ag, null), [{ role: "user", content }], signal, i === 0 ? sources : null);
+      const vm = i === 0 && images.length ? visionFor(ag) : null;
+      const r = await work(ag, systemFor(ag, null), [{ role: "user", content, ...(i === 0 && images.length ? { images } : {}) }], signal, i === 0 ? sources : null, vm ? { model: vm } : {});
       if (r.error || signal.aborted) break;
       outs.push(r.text);
     }
@@ -1333,11 +1342,15 @@ async function dispatch(raw) {
     agent ||= idx.agent[task.agent];
     setHot([task ? `task:${task.id}` : null, `agent:${agent.id}`, `dept:${agent.dept}`].filter(Boolean));
     conStatus(`${agent.name} working…`, true);
-    const r = await work(agent, systemFor(agent, task), [...ctx, { role: "user", content: webText ? `${webText}Question: ${text}` : text }], signal, sources);
+    if (images.length) ctx.forEach((m) => delete m.images); // a new photo replaces the earlier one
+    const hasImgs = images.length || ctx.some((m) => m.images);
+    const vm = hasImgs ? visionFor(agent) : null;
+    if (hasImgs && vm === false) { conLine(`<span class="err">None of your models can see images. Pull a vision model such as gemma4:12b.</span>`, "sys"); return finish(); }
+    const r = await work(agent, systemFor(agent, task), [...ctx, { role: "user", content: webText ? `${webText}Question: ${text}` : text, ...(images.length ? { images } : {}) }], signal, sources, vm ? { model: vm } : {});
     answer = r.error ? "" : r.text;
   }
   if (answer) {
-    session.history.push({ role: "user", content: text }, { role: "assistant", content: answer.slice(0, 20000) });
+    session.history.push({ role: "user", content: text, ...(images.length ? { images } : {}) }, { role: "assistant", content: answer.slice(0, 20000) });
     if (task) session.lastTask = task.id;
   }
   conLine(`✓ done in ${((Date.now() - t0) / 1000).toFixed(1)}s`, "sys ok");
@@ -1357,6 +1370,8 @@ $("#conForm").addEventListener("submit", (e) => {
   e.preventDefault();
   if (con.busy) { con.ac?.abort(); return; }
   const i = $("#conInput"), v = i.value;
+  if (!v.trim() && !con.att.length) return;
+  if (con.att.some((a) => a.uploading)) { conTrayNote("Still uploading…"); return; }
   i.value = "";
   dispatch(v);
 });
@@ -1557,6 +1572,69 @@ async function knownRepo(name) {
   return (ghRepoList || []).find((r) => r.name.toLowerCase() === n || r.full_name.toLowerCase() === n)?.name || null;
 }
 
+// ----- photos -----
+const photoUrl = (name, thumb) => `/api/photos/file/${encodeURIComponent(name)}?${thumb ? "thumb=1&" : ""}${authToken ? `t=${encodeURIComponent(authToken)}` : ""}`;
+const modelSees = (id) => !!D?.models?.find((m) => m.id === id && m.ready && m.vision && m.enabled !== false && !m.overBudget);
+// The model to use when photos are involved: the agent's own if it can see, otherwise a local one that can (null = keep, false = none)
+function visionFor(agent) {
+  const own = effModelId(agent);
+  if (modelSees(own)) return null;
+  const alt = ["gemma", ...D.models.filter((m) => m.provider === "ollama").map((m) => m.id), "opus"].find(modelSees);
+  if (!alt) return false;
+  conLine(`📷 ${esc(modelOf(agent).label)} can't see images, so ${esc(idx.model[alt]?.label || alt)} looks at the photo for ${esc(agent.name)}`, "sys dim");
+  return alt;
+}
+// Shrink big photos before upload (max 1600px), and make a small thumbnail
+async function shrinkImage(file, max = 1600, q = 0.85) {
+  const load = () => new Promise((ok, bad) => { const img = new Image(); img.onload = () => ok(img); img.onerror = () => bad(new Error(/hei[cf]/i.test(file.type + file.name) ? "This browser can't open HEIC photos. On iPhone they're converted automatically; on the PC save it as JPG first." : "That file isn't an image this browser can open.")); img.src = URL.createObjectURL(file); });
+  const img = await load();
+  const draw = (m, qq) => { const k = Math.min(1, m / Math.max(img.naturalWidth, img.naturalHeight)); const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); return c.toDataURL("image/jpeg", qq); };
+  const out = { data: draw(max, q), thumb: draw(360, 0.75) };
+  URL.revokeObjectURL(img.src);
+  return out;
+}
+async function uploadPhoto(file) {
+  const { data, thumb } = await shrinkImage(file);
+  const r = await jfetch("/api/photos", { method: "POST", body: JSON.stringify({ data, thumb, name: file.name && !/^image\.\w+$/i.test(file.name) ? file.name : "" }) });
+  return { name: r.name, preview: thumb };
+}
+con.att = [];
+function renderTray() {
+  const t = $("#conTray"); if (!t) return;
+  t.hidden = !con.att.length;
+  t.innerHTML = con.att.map((a, i) => `<div class="tray-item ${a.uploading ? "up" : ""} ${a.error ? "bad" : ""}" title="${esc(a.error || a.name || "uploading…")}"><img src="${esc(a.preview || "")}" alt=""><button type="button" data-untray="${i}" aria-label="Remove photo">✕</button>${a.uploading ? `<span class="spin"></span>` : ""}</div>`).join("") + (con.att.length ? `<span class="tray-hint dim">${con.att.some((a) => a.uploading) ? "uploading…" : `${con.att.length} photo${con.att.length > 1 ? "s" : ""} attached · ask about ${con.att.length > 1 ? "them" : "it"} or just press Run`}</span>` : "");
+}
+function conTrayNote(msg) { const h = $("#conTray .tray-hint"); if (h) h.textContent = msg; }
+async function attachFiles(files) {
+  const list = [...files].filter((f) => /^image\//.test(f.type) || /\.(hei[cf]|jpe?g|png|webp|gif)$/i.test(f.name)).slice(0, Math.max(0, 4 - con.att.length));
+  if (!list.length) return;
+  conOpen(true);
+  for (const f of list) {
+    const a = { uploading: true, preview: "" };
+    con.att.push(a); renderTray();
+    try { a.preview = (await shrinkImage(f, 160, 0.6)).data; renderTray(); Object.assign(a, await uploadPhoto(f)); }
+    catch (e) { a.error = e.message; conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); con.att.splice(con.att.indexOf(a), 1); }
+    a.uploading = false; renderTray();
+  }
+  $("#conInput").focus();
+}
+function attachExisting(name) {
+  if (con.att.length >= 4 || con.att.some((a) => a.name === name)) return;
+  con.att.push({ name, preview: photoUrl(name, true) }); renderTray(); conOpen(true); $("#conInput").focus();
+}
+document.addEventListener("change", (e) => { if (e.target.id === "conFile" || e.target.id === "conCamFile") { attachFiles(e.target.files); e.target.value = ""; } });
+document.addEventListener("click", (e) => {
+  const u = e.target.closest("[data-untray]"); if (u) { con.att.splice(Number(u.dataset.untray), 1); renderTray(); return; }
+  if (e.target.closest("#conAttach")) return $("#conFile").click();
+  if (e.target.closest("#conCam")) return $("#conCamFile").click();
+});
+document.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length && e.target.closest?.("#console")) { e.preventDefault(); attachFiles(f); } });
+["dragover", "drop"].forEach((ev) => document.addEventListener(ev, (e) => {
+  if (!e.target.closest?.("#console") || !e.dataTransfer?.types?.includes("Files")) return;
+  e.preventDefault();
+  if (ev === "drop") attachFiles(e.dataTransfer.files);
+}));
+
 // ----- Obsidian vault: notes -----
 const vaultOn = () => !!D?.vault?.enabled;
 // Condensed from the obsidian-markdown skill in kepano/obsidian-skills (MIT), sized for a 12B local model.
@@ -1621,10 +1699,11 @@ async function noteCommand(q) {
       const items = session.items, oi = items.map((i, k) => [i, k]).reverse().find(([i]) => i.k === "out" && i.text && !i.error);
       if (!oi) { conLine("There's no answer in this chat to save yet. Ask something first, then say <b>save this to my notes</b>.", "sys"); return true; }
       const [out, at] = oi;
-      const question = [...items.slice(0, at)].reverse().find((i) => i.k === "cmd" && !/^(save|note|remember|forget)/i.test(i.text || ""))?.text || out.text.slice(0, 80);
+      const qItem = [...items.slice(0, at)].reverse().find((i) => i.k === "cmd" && !/^(save|note|remember|forget)/i.test(i.text || ""));
+      const question = qItem?.text || out.text.slice(0, 80);
       const note = await writeNote(writer, `Turn this question and answer into a clean, reusable note.\n\nQuestion: ${question}\n\nAnswer:\n${out.text.slice(0, 9000)}`, question.slice(0, 70), `${writer.name} writing note…`);
       if (out.sources?.length) note.body += `\n\n## Sources\n${out.sources.map((x) => `- [${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join("\n")}`;
-      const r = await jfetch("/api/vault/note", { method: "POST", body: JSON.stringify({ ...note, key: question, source: "nexus-hq answer" }) });
+      const r = await jfetch("/api/vault/note", { method: "POST", body: JSON.stringify({ ...note, key: question + (qItem?.images?.length ? ` ${qItem.images.join(" ")}` : ""), source: "nexus-hq answer", attachments: qItem?.images || [] }) });
       conLine(noteCard(r, note), "sys ok");
     } else {
       const topic = mk[1].trim();

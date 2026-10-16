@@ -85,6 +85,48 @@ async function failText(res) {
   try { const j = JSON.parse(t); return j.error?.message || j.error || t; } catch { return t || res.statusText; }
 }
 
+// ---------- photos ----------
+// Photos live in a "NexusPhotos" folder next to nexus-hq (e.g. ~/Documents/NexusPhotos), so the PC can see them too.
+const PHOTOS_DIR = path.resolve(env("PHOTOS_DIR", path.resolve(__dirname, "..", "NexusPhotos")));
+const PHOTO_EXT = /\.(jpe?g|png|webp|gif|heic|heif)$/i;
+const PHOTO_MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".heic": "image/heic", ".heif": "image/heif" };
+try { fs.mkdirSync(path.join(PHOTOS_DIR, ".thumbs"), { recursive: true }); } catch (e) { console.warn(`Photos folder: ${e.message}`); }
+const photoPath = (name, thumb) => {
+  const n = path.basename(String(name || ""));
+  if (!PHOTO_EXT.test(n) || n.startsWith(".")) return null;
+  const p = thumb ? path.join(PHOTOS_DIR, ".thumbs", n.replace(/\.[^.]+$/, ".jpg")) : path.join(PHOTOS_DIR, n);
+  return p.startsWith(PHOTOS_DIR + path.sep) ? p : null;
+};
+function photoData(name) {
+  const p = photoPath(name);
+  if (!p || !fs.existsSync(p)) return null;
+  return { mime: PHOTO_MIME[path.extname(p).toLowerCase()] || "image/jpeg", b64: fs.readFileSync(p).toString("base64") };
+}
+// Turn {role, content, images:[names]} into each provider's own image format
+function withImages(provider, messages) {
+  return messages.map((x) => {
+    const imgs = (x.images || []).map(photoData).filter(Boolean);
+    if (!imgs.length || x.role !== "user") return { role: x.role, content: x.content };
+    if (provider === "ollama") return { role: x.role, content: x.content, images: imgs.map((i) => i.b64) };
+    if (provider === "anthropic") return { role: x.role, content: [...imgs.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mime, data: i.b64 } })), { type: "text", text: x.content }] };
+    if (provider === "openai") return { role: x.role, content: [{ type: "input_text", text: x.content }, ...imgs.map((i) => ({ type: "input_image", image_url: `data:${i.mime};base64,${i.b64}` }))] };
+    return { role: x.role, content: [{ type: "text", text: x.content }, ...imgs.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mime};base64,${i.b64}` } }))] };
+  });
+}
+// Which local models can see images (asked from Ollama once, then cached)
+const visionCache = new Map();
+async function ollamaVision(model) {
+  const c = visionCache.get(model);
+  if (c && Date.now() - c.at < 10 * 60e3) return c.v;
+  let v = false;
+  try {
+    const r = await fetch(`${OLLAMA_URL}/api/show`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }), signal: AbortSignal.timeout(3000) });
+    if (r.ok) { const j = await r.json(); v = (j.capabilities || []).includes("vision") || !!j.projector_info || /clip|mllama|vision/i.test(JSON.stringify(j.details || {})); }
+  } catch {}
+  visionCache.set(model, { v, at: Date.now() });
+  return v;
+}
+
 // ---------- providers ----------
 // Each yields {type:"delta", text} and finally {type:"usage", input, output}
 async function* streamOpenAI(m, messages, system, signal) {
@@ -96,7 +138,7 @@ async function* streamOpenAI(m, messages, system, signal) {
     body: JSON.stringify({
       model: m.model, stream: true, max_output_tokens: m.maxTokens || MAX_TOKENS,
       ...(system ? { instructions: system } : {}),
-      input: messages.map((x) => ({ role: x.role, content: x.content })),
+      input: withImages("openai", messages),
     }),
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await failText(res)}`);
@@ -120,7 +162,7 @@ async function* streamAnthropic(m, messages, system, signal) {
     body: JSON.stringify({
       model: m.model, max_tokens: m.maxTokens || MAX_TOKENS, stream: true,
       ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
-      messages: messages.map((x) => ({ role: x.role, content: x.content })),
+      messages: withImages("anthropic", messages),
     }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await failText(res)}`);
@@ -135,7 +177,7 @@ async function* streamAnthropic(m, messages, system, signal) {
 }
 
 async function* streamOllama(m, messages, system, signal) {
-  const msgs = system ? [{ role: "system", content: system }, ...messages] : messages;
+  const msgs = system ? [{ role: "system", content: system }, ...withImages("ollama", messages)] : withImages("ollama", messages);
   const body = { model: m.model, stream: true, messages: msgs, options: { num_ctx: NUM_CTX } };
   if (m.think !== undefined) body.think = m.think;
   let res;
@@ -156,7 +198,7 @@ async function* streamOllama(m, messages, system, signal) {
 // OpenRouter: one key for both cloud models (OpenAI-compatible chat completions)
 async function* streamOpenRouter(m, messages, system, signal) {
   const key = env("OPENROUTER_API_KEY", "");
-  const msgs = system ? [{ role: "system", content: system }, ...messages] : messages;
+  const msgs = system ? [{ role: "system", content: system }, ...withImages("openrouter", messages)] : withImages("openrouter", messages);
   const res = await fetch(`${env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").replace(/\/$/, "")}/chat/completions`, {
     method: "POST", signal,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "X-Title": "Nexus HQ" },
@@ -238,6 +280,7 @@ async function status() {
     const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) });
     if (r.ok) ollamaModels = ((await r.json()).models || []).map((x) => x.name);
   } catch {}
+  const vis = Object.fromEntries(await Promise.all(MODELS.filter((m) => m.provider === "ollama").map(async (m) => [m.id, await ollamaVision(m.model)])));
   return MODELS.map((m) => {
     let ready = true, note = "";
     const r = route(m);
@@ -250,7 +293,7 @@ async function status() {
     if (ready && m.budgeted && overBudget()) note = `Reached the ${limitHit()}; local models stand in until it resets`;
     const off = m.provider !== "ollama" && isDisabled(m.id);
     if (off) note = "Turned off in Nexus HQ; local models are standing in";
-    return { id: m.id, label: m.label, model: rt.model, provider: rt.via || m.provider, color: m.color, ready, note, ...(m.budgeted ? { budgeted: true, overBudget: overBudget() } : {}), ...(m.provider !== "ollama" ? { switchable: true, enabled: !off } : {}) };
+    return { id: m.id, label: m.label, model: rt.model, provider: rt.via || m.provider, color: m.color, ready, note, ...(m.budgeted ? { budgeted: true, overBudget: overBudget() } : {}), ...(m.provider !== "ollama" ? { switchable: true, enabled: !off } : {}), vision: m.provider === "ollama" ? !!vis[m.id] : true };
   });
 }
 
@@ -359,7 +402,7 @@ function authed(req) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (c) => { data += c; if (data.length > 5e6) req.destroy(); });
+    req.on("data", (c) => { data += c; if (data.length > 30e6) req.destroy(); });
     req.on("end", () => { try { resolve(JSON.parse(data || "{}")); } catch (e) { reject(e); } });
     req.on("error", reject);
   });
@@ -396,6 +439,31 @@ async function handle(req, res) {
       res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
       return fs.createReadStream(file).pipe(res);
     }
+  }
+
+  // ---- photo files ----
+  const pf = url.pathname.match(/^\/api\/photos\/file\/(.+)$/);
+  if (pf && req.method === "GET") {
+    const qt = url.searchParams.get("t") || "";
+    if (!(authed(req) || (TOKEN && qt && sameText(qt, TOKEN)))) { res.writeHead(401); return res.end("login required"); }
+    const name = decodeURIComponent(pf[1]);
+    let p = photoPath(name, url.searchParams.has("thumb"));
+    if (p && !fs.existsSync(p)) p = photoPath(name); // no thumbnail yet: send the photo itself
+    if (!p || !fs.existsSync(p)) { res.writeHead(404); return res.end("not found"); }
+    res.writeHead(200, { "Content-Type": PHOTO_MIME[path.extname(p).toLowerCase()] || "image/jpeg", "Cache-Control": "private, max-age=86400" });
+    return fs.createReadStream(p).pipe(res);
+  }
+
+  // ---- images inside the vault (e.g. Attachments/photo.jpg embedded in a note) ----
+  const vf = url.pathname.match(/^\/api\/vaultfile\/(.+)$/);
+  if (vf && req.method === "GET" && vault) {
+    const qt = url.searchParams.get("t") || "";
+    if (!(authed(req) || (TOKEN && qt && sameText(qt, TOKEN)))) { res.writeHead(401); return res.end("login required"); }
+    const rel = decodeURIComponent(vf[1]);
+    const p = path.resolve(vault.root, rel);
+    if (!p.startsWith(vault.root + path.sep) || !PHOTO_EXT.test(p) || /(^|[\\/])private([\\/]|$)/i.test(rel) || !fs.existsSync(p)) { res.writeHead(404); return res.end("not found"); }
+    res.writeHead(200, { "Content-Type": PHOTO_MIME[path.extname(p).toLowerCase()] || "image/jpeg", "Cache-Control": "private, max-age=86400" });
+    return fs.createReadStream(p).pipe(res);
   }
 
   // ---- login ----
@@ -465,6 +533,42 @@ async function handle(req, res) {
     }
   }
 
+  // ---- photos ----
+  if (url.pathname === "/api/photos" && req.method === "GET") {
+    let files = [];
+    try {
+      files = fs.readdirSync(PHOTOS_DIR, { withFileTypes: true }).filter((e) => e.isFile() && PHOTO_EXT.test(e.name) && !e.name.startsWith("."))
+        .map((e) => { const st = fs.statSync(path.join(PHOTOS_DIR, e.name)); return { name: e.name, size: st.size, time: st.mtime.toISOString(), thumb: fs.existsSync(photoPath(e.name, true)), heic: /\.hei[cf]$/i.test(e.name) }; })
+        .sort((a, b) => b.time.localeCompare(a.time));
+    } catch {}
+    return jsonOut(res, 200, { dir: PHOTOS_DIR, photos: files });
+  }
+  if (url.pathname === "/api/photos" && req.method === "POST") {
+    const b = await readBody(req);
+    const m = String(b.data || "").match(/^data:image\/(jpeg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) return jsonOut(res, 400, { error: "Send a JPEG, PNG, WebP or GIF image" });
+    const ext = m[1] === "jpeg" ? "jpg" : m[1];
+    const d = new Date(), z = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`;
+    const base = String(b.name || "").replace(/\.[^.]+$/, "").replace(/[^\w -]+/g, "").trim().slice(0, 40);
+    let name = `${stamp}${base ? " " + base : ""}.${ext}`, i = 2;
+    while (fs.existsSync(path.join(PHOTOS_DIR, name))) name = `${stamp}${base ? " " + base : ""} ${i++}.${ext}`;
+    fs.mkdirSync(path.join(PHOTOS_DIR, ".thumbs"), { recursive: true });
+    fs.writeFileSync(path.join(PHOTOS_DIR, name), Buffer.from(m[2], "base64"));
+    const t = String(b.thumb || "").match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
+    if (t) fs.writeFileSync(photoPath(name, true), Buffer.from(t[1], "base64"));
+    return jsonOut(res, 200, { name });
+  }
+  const pd = url.pathname.match(/^\/api\/photos\/(.+)$/);
+  if (pd && req.method === "DELETE") {
+    const name = decodeURIComponent(pd[1]), p = photoPath(name);
+    if (!p || !fs.existsSync(p)) return jsonOut(res, 404, { error: "Photo not found" });
+    const trash = path.join(PHOTOS_DIR, ".trash"); fs.mkdirSync(trash, { recursive: true });
+    fs.renameSync(p, path.join(trash, path.basename(p)));
+    try { fs.unlinkSync(photoPath(name, true)); } catch {}
+    return jsonOut(res, 200, { ok: true });
+  }
+
   // ---- memory ----
   if (url.pathname === "/api/memory" && req.method === "GET") return jsonOut(res, 200, { items: readMemory() });
   if (url.pathname === "/api/memory" && req.method === "POST") {
@@ -496,7 +600,18 @@ async function handle(req, res) {
       if (url.pathname === "/api/vault/note" && req.method === "POST") {
         const b = await readBody(req);
         if (!String(b.body || "").trim()) return jsonOut(res, 400, { error: "Empty note" });
-        return jsonOut(res, 200, vault.save({ title: b.title, body: String(b.body).slice(0, 60000), tags: Array.isArray(b.tags) ? b.tags : [], folder: b.folder || "Notes", key: b.key || "", source: b.source || "nexus-hq" }));
+        let body = String(b.body).slice(0, 60000);
+        // Photos the note is about: copy them into the vault and embed them under the title
+        const embeds = [];
+        for (const n of (Array.isArray(b.attachments) ? b.attachments : []).slice(0, 4)) {
+          const src = photoPath(n);
+          if (!src || !fs.existsSync(src)) continue;
+          fs.mkdirSync(path.join(vault.root, "Attachments"), { recursive: true });
+          fs.copyFileSync(src, path.join(vault.root, "Attachments", path.basename(src)));
+          embeds.push(`![[${path.basename(src)}]]`);
+        }
+        if (embeds.length) body = /^#\s.*\n/.test(body) ? body.replace(/^(#\s.*\n)/, `$1\n${embeds.join("\n")}\n`) : `${embeds.join("\n")}\n\n${body}`;
+        return jsonOut(res, 200, vault.save({ title: b.title, body, tags: Array.isArray(b.tags) ? b.tags : [], folder: b.folder || "Notes", key: b.key || "", source: b.source || "nexus-hq" }));
       }
       if (url.pathname === "/api/vault/note" && req.method === "DELETE") return jsonOut(res, 200, vault.remove(url.searchParams.get("path") || ""));
       if (url.pathname === "/api/vault/search") return jsonOut(res, 200, { results: vault.search(url.searchParams.get("q") || "", Math.min(Number(url.searchParams.get("k")) || 3, 8)) });
