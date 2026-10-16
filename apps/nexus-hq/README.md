@@ -30,6 +30,7 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
   - Say *"save this to my notes"* after an answer, or *"make a note about docker networking"*.
   - Saving the same question or topic again **updates the existing note** instead of making a duplicate.
   - *"add all my repos to my vault"* writes an overview note for every repo, one after another (Stop ends it early).
+  - **Repo sync:** every 30 minutes (`REPO_SYNC_MINUTES`) Nexus HQ checks each repo's latest commit. Changes made anywhere (Nexus HQ, the GitHub website, Claude) are added to that repo note's change log, new repos get a note, and the overview is refreshed by Gemma at most every 3 hours per repo. Overviews marked `overview-by: claude` are kept as written. Say *"sync my repos"* or tap the ↻ chip in the Vault tab to check right away.
   - *"make a note about my NexusLLM repo"* writes that repo's overview into `Repos/NexusLLM.md`, and every **Merge now** adds a line to its change log.
   - When you ask something, Nexus HQ finds your most relevant notes and gives them to the agent (you'll see "📓 using a note from your vault").
   - `Private/` is never searched, never shown to agents and never sent to Opus.

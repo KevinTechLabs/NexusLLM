@@ -13,7 +13,7 @@ const relTime = (iso) => {
 async function vaultLoad(force) {
   if (V.loading || (!force && V.data && Date.now() - V.at < 4000)) return V.data;
   V.loading = true;
-  try { V.data = await jfetch("/api/vault"); V.at = Date.now(); if (D) D.memory = V.data.memory; }
+  try { V.data = await jfetch("/api/vault"); V.at = Date.now(); if (D) D.memory = V.data.memory; try { V.sync = await jfetch("/api/vault/sync"); } catch { V.sync = null; } }
   catch (e) { V.data = { error: e.message, notes: [], memory: [] }; }
   V.loading = false;
   return V.data;
@@ -67,7 +67,7 @@ function vaultPaint() {
   $("#vName").textContent = d.name;
   const links = d.notes.reduce((a, n) => a + n.linkPaths.length, 0);
   const tagCount = {}; d.notes.forEach((n) => n.tags.forEach((t) => (tagCount[t] = (tagCount[t] || 0) + 1)));
-  $("#vStats").innerHTML = `<span><b>${d.notes.length}</b> notes</span><span><b>${links}</b> links</span><span><b>${Object.keys(tagCount).length}</b> tags</span><span><b>${d.memory.length}</b> facts</span>`;
+  $("#vStats").innerHTML = `<span><b>${d.notes.length}</b> notes</span><span><b>${links}</b> links</span><span><b>${Object.keys(tagCount).length}</b> tags</span><span><b>${d.memory.length}</b> facts</span>${V.sync?.enabled ? `<button class="v-sync ${V.sync.running ? "on" : ""}" data-vact="sync" title="Repo notes update from GitHub every ${V.sync.minutes} minutes. Click to check now.">↻ ${V.sync.running ? "syncing repos…" : V.sync.lastRun ? `repos synced ${relTime(V.sync.lastRun)}` : "repo sync starting"}</button>` : ""}`;
 
   // list
   const folders = ["", ...new Set(d.notes.map((n) => n.folder).filter(Boolean))];
@@ -291,6 +291,7 @@ document.addEventListener("click", async (e) => {
   const fg = e.target.closest("[data-vforget]");
   if (fg) { try { const r = await jfetch(`/api/memory/${fg.dataset.vforget}`, { method: "DELETE" }); V.data.memory = r.items; D.memory = r.items; vaultMemory(); vaultPaint(); } catch {} return; }
   const act = e.target.closest("[data-vact]")?.dataset.vact;
+  if (act === "sync") { try { V.sync = await jfetch("/api/vault/sync", { method: "POST" }); } catch {} vaultPaint(); const poll = setInterval(async () => { try { V.sync = await jfetch("/api/vault/sync"); } catch { clearInterval(poll); } if (!V.sync?.running) { clearInterval(poll); await vaultLoad(true); } vaultPaint(); }, 3000); return; }
   if (act === "refresh") { await vaultLoad(true); if (V.sel && V.pane === "note") { try { V.note = await jfetch(`/api/vault/note?path=${encodeURIComponent(V.sel)}`); } catch { V.note = null; } } return vaultPaint(); }
   if (act === "ask" && V.note) { const inp = $("#conInput"); conOpen(true); inp.value = `About my note "${V.note.title}": `; inp.focus(); return; }
   if (act === "delete" && V.note) {

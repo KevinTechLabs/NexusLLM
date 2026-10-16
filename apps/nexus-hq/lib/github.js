@@ -194,7 +194,16 @@ function makeClient(token) {
     return { merged: !!m.merged, sha: m.sha, url: pr.html_url };
   }
 
-  return { user, repos, info, tree, snapshot, openPR, publish, file, merge, full, state, check };
+  // Latest commits on the default branch (newest first)
+  async function commits(repo, n = 20) {
+    const r = await info(repo);
+    try {
+      const list = await gh("GET", `/repos/${r.full_name}/commits?sha=${encodeURIComponent(r.default_branch)}&per_page=${n}`);
+      return list.map((c) => ({ sha: c.sha, date: (c.commit?.committer?.date || c.commit?.author?.date || "").slice(0, 10), message: String(c.commit?.message || "").split("\n")[0].trim(), url: c.html_url }));
+    } catch (e) { if (e.status === 409) return []; throw e; }
+  }
+
+  return { user, repos, info, tree, snapshot, openPR, publish, file, merge, full, state, check, commits };
 }
 
 module.exports = { makeClient, clean };

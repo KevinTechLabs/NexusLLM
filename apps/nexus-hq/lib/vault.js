@@ -101,7 +101,7 @@ function makeVault(dir) {
         path: f.rel, name, title: meta.title || name, folder: f.rel.includes("/") ? f.rel.split("/")[0] : "",
         tags, links, key: meta["nexus-key"] || "", source: meta.source || "",
         created: meta.created || st.birthtime.toISOString().slice(0, 10), updated: st.mtime.toISOString(),
-        words: plain ? plain.split(" ").length : 0, excerpt: plain.slice(0, 220), private: isPrivate(f.rel),
+        words: plain ? plain.split(" ").length : 0, excerpt: (meta.description ? `${meta.description} ` : "") + plain.replace(/^GitHub:\s*\S+\s*/, "").slice(0, 220), private: isPrivate(f.rel),
         _body: body, _plain: plain,
       });
     }
@@ -191,7 +191,12 @@ function makeVault(dir) {
   }
 
   // ---------- repo notes: overview + change log ----------
-  function repoNote(repo, { overview, logLine, url } = {}) {
+  // Frontmatter of a repo's note (used by the repo sync to know which commit it last saw)
+  function repoMeta(repo) {
+    const p = abs(`Repos/${slug(repo.split("/").pop())}.md`);
+    return fs.existsSync(p) ? parseNote(fs.readFileSync(p, "utf8")).meta : null;
+  }
+  function repoNote(repo, { overview, logLine, logLines, url, meta: extra } = {}) {
     const name = slug(repo.split("/").pop());
     const rel = `Repos/${name}.md`, p = abs(rel);
     let meta = { title: name, tags: ["repo", "github"], repo, url, created: today(), "nexus-key": `repo ${repo}` }, ov = "", log = [];
@@ -203,6 +208,10 @@ function makeVault(dir) {
     }
     if (overview) ov = overview.trim();
     if (logLine && !log.includes(logLine)) log.unshift(logLine);
+    // several new lines at once, newest first; skip ones already logged (same short commit id)
+    for (const l of [...(logLines || [])].reverse()) { const id = (l.match(/\(([0-9a-f]{7})\)\s*$/) || [])[1]; if (!log.includes(l) && !(id && log.some((x) => x.includes(`(${id})`)))) log.unshift(l); }
+    log = log.slice(0, 200);
+    if (extra) Object.assign(meta, extra);
     meta.updated = today(); if (url) meta.url = url;
     const body = `# ${name}\n\n${url ? `GitHub: ${url}\n\n` : ""}## Overview\n\n${ov || "_No overview yet. Say \"make a note about my " + name + " repo\" in Nexus HQ._"}\n\n## Change log\n\n${log.join("\n") || "_Merges made from Nexus HQ show up here._"}\n`;
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -226,7 +235,7 @@ function makeVault(dir) {
   }
 
   init();
-  return { root, name: path.basename(root), list: () => list().map(pub), read, search, save, remove, repoNote, readMemory, writeMemory, init };
+  return { root, name: path.basename(root), list: () => list().map(pub), read, search, save, remove, repoNote, repoMeta, readMemory, writeMemory, init };
 }
 
 module.exports = { makeVault, parseNote, buildNote };

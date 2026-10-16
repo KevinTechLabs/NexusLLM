@@ -544,7 +544,7 @@ function systemFor(agent, task) {
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   let s = `Today's date is ${today}.\n\n` + (house ? house + "\n\n" : "") + (agent.prompt || "");
   s += `\n\nYou run inside Nexus HQ, the user's own dashboard. The app itself (not you) handles these when the user phrases them this way, so if one of these requests reaches you, tell them the exact words to use instead of saying you can't:
-- GitHub: "read my <repo> repo", "add <something> to my <repo> repo", "show my repos", "add all my repos to my vault"
+- GitHub: "read my <repo> repo", "add <something> to my <repo> repo", "show my repos", "add all my repos to my vault", "sync my repos" (repo notes also update on their own every 30 minutes)
 - Notes (Obsidian vault): "save this to my notes", "make a note about <topic>"
 - Memory: "remember that <fact>", "what do you remember", "forget <n>"
 - Photos: the + / photo buttons next to the input
@@ -1218,6 +1218,7 @@ const HELP = `Ask anything and HQ routes it to the right agent. Follow-ups keep 
 GitHub: just ask, e.g. <b>read my NexusLLM repo</b> · <b>add a FAQ to my NexusLLM repo</b> · <b>show my repos</b>
 Memory: <b>remember that</b> ... · <b>what do you remember</b> · <b>forget</b> 2 (or forget the one about ...)
 Photos: 🖼 attach or 📷 take a photo (phone), paste or drop one on the PC, then ask about it · <b>Photos</b> tab
+Repos:  <b>add all my repos to my vault</b> · <b>sync my repos</b> (also runs every 30 min)
 Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the <b>Vault</b> tab to browse them
 <b>/repos</b>            list your GitHub repos      <b>/repo</b> name    pick the repo to work on
 <b>/update</b> what       write a change, show the diff, then <b>Open pull request</b> → <b>Merge now</b>
@@ -1756,8 +1757,28 @@ async function repoNotesAll(q) {
   try { D.vault.notes = (await jfetch("/api/vault")).notes.length; } catch {}
 }
 
+// "sync my repos": refresh the repo notes from GitHub now (it also runs on its own every 30 minutes)
+async function repoSyncNow(q) {
+  const t0 = Date.now();
+  let st = await jfetch("/api/vault/sync", { method: "POST" });
+  if (!st.enabled) { conLine(`Repo sync is off: ${esc(st.reason || "")}.`, "sys"); return; }
+  conLine("🔄 Checking every repo on GitHub for changes. New commits go into each repo's note, and changed repos get a fresh overview.", "sys");
+  con.busy = true; con.ac = new AbortController();
+  try {
+    while (st.running && !con.ac.signal.aborted && Date.now() - t0 < 20 * 60e3) {
+      conStatus(`syncing repos… ${Math.round((Date.now() - t0) / 1000)}s`, true);
+      await new Promise((r) => setTimeout(r, 2500));
+      st = await jfetch("/api/vault/sync");
+    }
+  } finally { con.busy = false; con.ac = null; conStatus("idle"); }
+  const fresh = (st.events || []).filter((e) => new Date(e.at) >= t0 - 1000);
+  conLine(st.running ? "Still syncing in the background; the notes will update when it finishes." : `✓ Repo notes are up to date${fresh.length ? ":<br>" + fresh.map((e) => `· ${esc(e.text)}`).join("<br>") : " (nothing changed since the last check)."}`, "sys ok");
+  rememberTurn(q, `Synced the repo notes in the vault with GitHub. ${fresh.map((e) => e.text).join("; ") || "Nothing had changed."}`);
+}
+
 // "save this to my notes", "make a note about ...", "note this"
 async function noteCommand(q) {
+  if (/^(please\s+)?(can you\s+)?(sync|refresh|update|resync)\s+(all\s+)?(my\s+)?(repos?|repo notes|repository notes|github notes|vault with github|notes from github)(\s+notes)?(\s+(now|in my vault|to my vault))?\s*[.!?]*$/i.test(q)) { await repoSyncNow(q); return true; }
   const saveRe = /^(?:please\s+)?(?:can you\s+|could you\s+)?(?:save|add|put|store|keep|copy|send)\s+(?:this|that|it|the (?:last )?answer|this answer|that answer)(?:\s+(?:to|in|into|as)\s+(?:a\s+)?(?:my\s+)?(?:notes?|obsidian|vault))?\s*[.!?]*$|^(?:note this|save (?:to|in) (?:my )?(?:notes|obsidian|vault))\s*[.!?]*$/i;
   const makeRe = /^(?:please\s+)?(?:can you\s+|could you\s+)?(?:make|write|create|start|add)\s+(?:me\s+)?(?:a|an)?\s*(?:new\s+)?(?:obsidian\s+)?note\s+(?:about|on|for|of)\s+([\s\S]+?)\s*[.!?]*$/i;
   const saving = saveRe.test(q) && /note|obsidian|vault|^save this$|^save that$|note this/i.test(q);

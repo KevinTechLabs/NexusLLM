@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Nexus HQ repo sync: repo notes in the vault follow GitHub automatically (new commits logged, new repos added, overviews refreshed), plus "sync my repos" and a sync chip in the Vault tab.
+
 - Nexus HQ: "add all my repos to my vault" (one note per repo). Answers to Nexus HQ's own questions work ("Which repo?" → "all of them" or a repo name). GitHub, notes and memory actions are part of the conversation, so agents understand follow-ups, and agents know the exact phrases the app understands.
 
 - Nexus HQ phone layout: slim top bar with a status sheet, bottom tab bar (HQ · Ask · Vault · Photos), chat-style Ask tab, one-line ask bar with a + menu (photos, camera, web search), and an "Answer ready" bubble on the HQ tab.

@@ -314,8 +314,16 @@ if (!/^(off|none|false|0)$/i.test(VAULT_DIR)) {
     }
   } catch (e) { console.warn(`Vault disabled: ${e.message}`); vault = null; }
 }
+
 const GITHUB_TOKEN = env("GITHUB_TOKEN", "");
 const github = GITHUB_TOKEN ? makeClient(GITHUB_TOKEN) : null;
+// Keep repo notes in the vault in sync with GitHub (REPO_SYNC_MINUTES=0 turns it off)
+const { makeRepoSync } = require("./lib/reposync");
+const REPO_SYNC_MINUTES = Number(env("REPO_SYNC_MINUTES", 30));
+const repoSync = github && vault && REPO_SYNC_MINUTES > 0
+  ? makeRepoSync({ github, vault, ollamaUrl: OLLAMA_URL, model: env("GEMMA_MODEL", "gemma4:12b"), minutes: REPO_SYNC_MINUTES, stateFile: path.join(__dirname, "data", "repo-sync.json"), log: (m) => console.log(m) })
+  : null;
+repoSync?.start();
 // Connect to GitHub as soon as the server starts, and re-check every 6 hours (catches an expired token).
 if (github) { const ping = () => github.check().catch((e) => { github.state.error = e.message; }); ping(); setInterval(ping, 6 * 3600e3).unref(); }
 const PROJECTS_DIR = path.join(__dirname, "data", "projects");
@@ -615,9 +623,15 @@ async function handle(req, res) {
       }
       if (url.pathname === "/api/vault/note" && req.method === "DELETE") return jsonOut(res, 200, vault.remove(url.searchParams.get("path") || ""));
       if (url.pathname === "/api/vault/search") return jsonOut(res, 200, { results: vault.search(url.searchParams.get("q") || "", Math.min(Number(url.searchParams.get("k")) || 3, 8)) });
+      if (url.pathname === "/api/vault/sync") {
+        if (!repoSync) return jsonOut(res, 200, { enabled: false, reason: !github ? "GitHub isn't connected" : "REPO_SYNC_MINUTES is 0" });
+        if (req.method === "POST") { if (!repoSync.state.running) repoSync.run().catch(() => {}); await new Promise((r) => setTimeout(r, 50)); }
+        const { repos, ...st } = repoSync.state;
+        return jsonOut(res, 200, { enabled: true, minutes: REPO_SYNC_MINUTES, tracked: Object.keys(repos).length, ...st });
+      }
       if (url.pathname === "/api/vault/repo" && req.method === "POST") {
         const b = await readBody(req);
-        return jsonOut(res, 200, vault.repoNote(String(b.repo || ""), { overview: b.overview ? String(b.overview).slice(0, 20000) : undefined, url: b.url }));
+        return jsonOut(res, 200, vault.repoNote(String(b.repo || ""), { overview: b.overview ? String(b.overview).slice(0, 20000) : undefined, url: b.url, meta: b.overview ? { "overview-by": "nexus-hq" } : undefined }));
       }
     } catch (e) { return jsonOut(res, e.status || 500, { error: e.message }); }
     return jsonOut(res, 404, { error: "unknown vault action" });

@@ -748,3 +748,7 @@ pre .code-path{display:block;font-size:10px;letter-spacing:.06em;color:var(--cha
   .p-title b,.v-title b{font-size:17px}
 }
 @media (max-width:760px) and (prefers-reduced-motion:reduce){.pk-dot{animation:none}.sheet{transition:none}}
+
+.v-sync{font-size:10.5px;color:var(--muted);border:1px solid var(--line2);border-radius:20px;padding:2px 9px;letter-spacing:.04em}
+.v-sync:hover{color:var(--vault);border-color:var(--vault)}
+.v-sync.on{color:var(--vault);border-color:var(--vault);animation:blink 1.2s steps(2) infinite}
