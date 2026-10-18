@@ -951,13 +951,13 @@ function itemEl(it) {
     const a = agentFor(it), d = document.createElement("div");
     d.className = "out";
     d.style.setProperty("--c", deptColor(a.dept));
-    d.innerHTML = `<div class="who">${agentTag(a)}</div><div class="body">${it.error ? `<span class="err">⚠ ${esc(it.error)}</span>` : md(it.text)}</div>${sourcesHTML(it.sources)}${it.error ? "" : statsLine(it.stats)}`;
+    d.innerHTML = `<div class="who">${agentTag(a)}</div><div class="body">${it.error ? `<span class="err">⚠ ${esc(it.error)}</span>` : md(it.text)}</div>${sourcesHTML(it.sources)}${it.error ? "" : statsLine(it.stats)}<div class="out-acts">${it.error ? "" : `<button type="button" data-ux="copy" title="Copy answer">⧉ Copy</button>`}<button type="button" data-ux="regen" title="Get a new answer">↻ Retry</button></div>`;
     if (it.sources?.length) { d._sources = it.sources; linkCitations(d.querySelector(".body"), it.sources); }
     return d;
   }
   const d = document.createElement("div");
   d.className = `ln ${it.k === "cmd" ? "cmd" : it.cls || ""}`;
-  const body = it.k === "cmd" ? `<span class="prompt">nexus@hq:~$</span> ${esc(it.text)}${it.images?.length ? `<span class="ln-imgs">${it.images.map((n) => `<button type="button" data-photo="${esc(n)}"><img src="${esc(photoUrl(n, true))}" alt="photo" loading="lazy"></button>`).join("")}</span>` : ""}` : it.html;
+  const body = it.k === "cmd" ? `<span class="prompt">nexus@hq:~$</span> <span class="cmd-text">${esc(it.text)}</span>${/^\//.test(it.text) ? "" : `<button type="button" class="cmd-edit" data-ux="edit" title="Edit and resend" aria-label="Edit and resend">✎</button>`}${it.images?.length ? `<span class="ln-imgs">${it.images.map((n) => `<button type="button" data-photo="${esc(n)}"><img src="${esc(photoUrl(n, true))}" alt="photo" loading="lazy"></button>`).join("")}</span>` : ""}` : it.html;
   d.innerHTML = `<span class="ts">${tfmt(it.t)}</span><span class="tx">${body}</span>`;
   return d;
 }
@@ -1246,6 +1246,10 @@ function contextTurns(maxChars = 24000, maxTurns = 12) {
     if (total + m.content.length > maxChars) break;
     out.unshift({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) }); total += m.content.length;
   }
+  // Long chat: older turns that don't fit are replaced by a running summary, so nothing decided earlier is lost
+  if (session.summary && out.length < session.history.length) {
+    out.unshift({ role: "user", content: `Summary of the earlier part of this conversation (for context):\n${session.summary}` }, { role: "assistant", content: "Got it, I'll keep that in mind." });
+  }
   // only the most recent photos travel with the conversation (keeps local models fast and Opus cheap)
   let seen = false;
   for (let i = out.length - 1; i >= 0; i--) if (out[i].images) { if (seen) delete out[i].images; seen = true; }
@@ -1298,7 +1302,7 @@ async function dispatch(raw) {
     conLine(on ? "Claude Opus is <b>on</b>. Architect, Reviewer and Advisor use it again." : "Claude Opus is <b>off</b>. Architect and Reviewer use Qwen3-Coder 30B and Advisor uses Gemma 4 12B.", "sys ok");
     return saveSession();
   }
-  addItem({ k: "cmd", text: q, ...(images.length ? { images } : {}) });
+  addItem({ k: "cmd", text: q, hl: session.history.length, ...(images.length ? { images } : {}) });
   if (q === "/help" || q === "help") return conLine(`<pre class="help">${HELP}</pre>`, "sys");
   if (/^\/(github|repos|repo|review|update|project|files|save|publish)\b/.test(q)) {
     try { await ghCommand(q); } catch (e) { conLine(`<span class="err">${esc(e.message)}</span>`, "sys"); }
@@ -1451,6 +1455,8 @@ async function dispatch(raw) {
   finish();
   // notice lasting facts about you in what you said, and offer to remember them
   if (answer && ansAgent?.id !== "private") window.suggestMemory?.(text, ansAgent ? effModelId(ansAgent) : null);
+  // title the chat, keep long chats summarized, and offer follow-up questions
+  if (answer) window.afterAnswer?.(text, answer, ansAgent, task);
 
   function finish(msg) {
     if (msg) conLine(msg, "sys dim");
@@ -1468,7 +1474,7 @@ $("#conForm").addEventListener("submit", (e) => {
   const i = $("#conInput"), v = i.value;
   if (!v.trim() && !con.att.length) return;
   if (con.att.some((a) => a.uploading)) { conTrayNote("Still uploading…"); return; }
-  i.value = "";
+  i.value = ""; i.dispatchEvent(new Event("input"));
   dispatch(v);
 });
 $("#conToggle").addEventListener("click", () => conOpen(!con.open));

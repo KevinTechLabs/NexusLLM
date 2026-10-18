@@ -631,6 +631,28 @@ async function handle(req, res) {
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ sessions }));
   }
+  // Search every saved chat by what was said in it (titles, your messages, the answers)
+  if (url.pathname === "/api/sessions/search" && req.method === "GET") {
+    const q = String(url.searchParams.get("q") || "").toLowerCase().trim().slice(0, 100);
+    const terms = q.split(/\s+/).filter((w) => w.length > 1);
+    if (!terms.length) return jsonOut(res, 200, { results: [] });
+    const strip = (h) => String(h || "").replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/gi, " ");
+    const results = [];
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    for (const f of fs.readdirSync(SESSIONS_DIR)) {
+      if (!f.endsWith(".json")) continue;
+      let j; try { j = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), "utf8")); } catch { continue; }
+      const parts = [String(j.title || ""), ...(j.items || []).map((i) => (i.k === "cmd" ? i.text : i.k === "out" ? i.text : "")).filter(Boolean)];
+      const all = parts.join("\n").toLowerCase();
+      if (!terms.every((t) => all.includes(t))) continue;
+      const score = terms.reduce((a, t) => a + all.split(t).length - 1, 0) + (terms.every((t) => String(j.title || "").toLowerCase().includes(t)) ? 20 : 0);
+      const hit = parts.slice(1).find((p) => p.toLowerCase().includes(terms[0])) || "";
+      const at = Math.max(0, hit.toLowerCase().indexOf(terms[0]) - 50);
+      results.push({ id: j.id, title: j.title, updated: j.updated, count: (j.items || []).filter((i) => i.k === "cmd").length, score, snippet: (at ? "…" : "") + strip(hit).replace(/\s+/g, " ").slice(at, at + 140) });
+    }
+    results.sort((a, b) => b.score - a.score || (b.updated || 0) - (a.updated || 0));
+    return jsonOut(res, 200, { results: results.slice(0, 30) });
+  }
   const sm = url.pathname.match(/^\/api\/sessions\/([^/]+)$/);
   if (sm) {
     const file = sessionFile(sm[1]);

@@ -64,6 +64,7 @@
         <button type="button" class="con-btn proj" id="conProject" data-con="files" title="Open project files" hidden></button>
         <button type="button" class="con-btn" data-con="new" title="Start a new chat">+ New</button>
         <button type="button" class="con-btn" data-con="chats" title="Saved chats">Chats</button>
+        <button type="button" class="con-btn icon" data-ux="view" id="conView" title="Switch between chat bubbles and terminal view" aria-label="Switch view">💬</button>
         <button type="button" class="con-btn icon" data-con="full" id="conFullBtn" aria-label="Full screen console" title="Full screen">⛶</button>
         <button id="conToggle" class="con-btn icon" type="button" aria-label="Collapse console">▾</button>
       </div>
@@ -74,6 +75,7 @@
         <div class="dr-head"><b>Saved chats</b><span class="dim">shared by every device</span>
           <button type="button" class="con-btn" data-con="new">+ New chat</button>
           <button type="button" class="con-btn icon" data-con="close-drawer" aria-label="Close saved chats">✕</button></div>
+        <input type="search" id="conSearch" class="dr-search" placeholder="Search your chats…" autocomplete="off" spellcheck="false">
         <div class="dr-list" id="conList"></div>
       </div>
     </div>
@@ -92,7 +94,7 @@
       <input type="file" id="conFile" accept="image/*" multiple hidden>
       <input type="file" id="conCamFile" accept="image/*" capture="environment" hidden>
       <span class="prompt">nexus@hq:~$</span>
-      <input id="conInput" enterkeyhint="send" spellcheck="false" placeholder="ask anything… HQ picks the agent (/help)">
+      <textarea id="conInput" rows="1" enterkeyhint="send" spellcheck="false" placeholder="ask anything… HQ picks the agent (/help)"></textarea>
       <button id="conRun" class="btn primary" type="submit">Run</button>
     </form>
   </section>
@@ -136,6 +138,7 @@
 <script src="/photos.js"></script>
 <script src="/lab.js"></script>
 <script src="/smart.js"></script>
+<script src="/chatux.js"></script>
 <script src="/phone.js"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@
 
 ## 2026-10-18
 
+- Nexus HQ chat comforts: growing message box (Enter / Shift+Enter), edit and resend, retry, copy, automatic titles, follow-up suggestions, running summaries for long chats, chat search, chat-bubble view on the PC.
 - Nexus HQ: the warm-up loads models with the same context size chats use, so the first answer doesn't reload the model (~6 s saved).
 - Nexus HQ: quick lab checks (temperatures, "is anything down?", alerts, power) skip the router and the vault and go straight to live lab data.
 - Nexus HQ: telling it something ("I use pfSense") gets a short acknowledgement instead of a tutorial; no more "The real question is:" lines; vault notes need a real keyword or meaning match.

@@ -47,6 +47,7 @@ It runs as a zero-dependency Node.js server (no `npm install`), next to Open Web
 - **Smarter vault search:** notes are found by meaning, not just matching words ("what should I cook tonight" finds *Weeknight dinner*), using the local `nomic-embed-text` model. Falls back to keyword search if it isn't installed.
 - **Phone notifications:** a notification when an answer finishes while you're away, when a critical or high alert comes in, and when a machine goes offline or comes back. If the phone puts the app to sleep mid-answer, the answer keeps going on the PC and shows up when you come back.
 - **Faster replies:** models stay loaded for 30 minutes, Gemma loads when the server starts, the model starts loading while you type, and coding questions skip the router so Gemma and Qwen don't swap in and out of GPU memory.
+- **Chat comforts:** a message box that grows as you type (Enter sends, Shift+Enter adds a line; on the phone the arrow sends), ✎ edit and resend, ↻ retry, ⧉ copy on every answer, automatic chat titles, suggested follow-up questions (`/followups off` to hide), long chats summarized so agents remember earlier decisions, a search box in **Chats**, and a 💬 chat-bubble view on the PC.
 - **Rename chats:** tap the chat title, the ✎ in **Chats**, or type `/rename new name`.
 - **Phone app layout:** on the iPhone, Nexus HQ looks like a native app:
   - a slim top bar with a status pill (models, GitHub, Compare, log out)
