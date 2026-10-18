@@ -2,6 +2,7 @@
 
 ## 2026-10-18
 
+- Nexus HQ: telling it something ("I use pfSense") gets a short acknowledgement instead of a tutorial; no more "The real question is:" lines; vault notes need a real keyword or meaning match.
 - Nexus HQ: Gemma only thinks before answering for decisions, plans and `/think ...` questions, so everyday answers start in seconds instead of ~30 s (`OLLAMA_THINK`).
 - Nexus HQ: no web search on AUTO for questions about your own lab or statements about yourself; memory suggestions for short statements like "I use pfSense".
 - Nexus HQ: routing and memory suggestions work on thinking models (no more "router error: Empty response"), lab addresses copied from the browser (ending in /login etc.) work, and the Lab chip shows connection problems plainly.

@@ -79,9 +79,10 @@ function makeSemantic({ vault, ollamaUrl, model = "nomic-embed-text", cacheFile,
       }
       const kmax = Math.max(1, ...keyword.map((r) => r.score));
       const kw = Object.fromEntries(keyword.map((r) => [r.path, r.score / kmax]));
+      const raw = Object.fromEntries(keyword.map((r) => [r.path, r.score])); // real keyword strength (one common shared word isn't a match)
       const merged = Object.entries(best).map(([p, b]) => ({ path: p, title: b.title, snippet: b.text, sem: b.s, score: b.s * 0.75 + (kw[p] || 0) * 0.25 }))
         // nomic-embed-text scores unrelated text around 0.4-0.55, so only clear matches count
-        .filter((r) => !/^Welcome\.md$/i.test(r.path) && (r.sem >= 0.7 || (kw[r.path] >= 0.3 && r.sem >= 0.55)))
+        .filter((r) => !/^Welcome\.md$/i.test(r.path) && (r.sem >= 0.7 || ((raw[r.path] || 0) >= 1.5 && r.sem >= 0.55)))
         .sort((a, b) => b.score - a.score)
         .filter((r, i, all) => r.score >= all[0].score * 0.6) // drop weak tag-alongs
         .slice(0, k);

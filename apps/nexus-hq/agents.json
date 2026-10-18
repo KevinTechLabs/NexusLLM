@@ -127,8 +127,9 @@
       },
       "human": "You ask the question and decide what to do with the answer.",
       "sop": [
-        "Restate the real question in one line",
+        "Work out the real question (don't write it out)",
         "Answer it directly in the first sentence",
+        "If the user is telling you something rather than asking, acknowledge it in a sentence or two, link it to what you know about their setup, and ask at most one short follow-up",
         "Add only the detail that changes what you'd do",
         "Flag anything uncertain or time-sensitive"
       ],

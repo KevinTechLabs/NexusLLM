@@ -1174,6 +1174,8 @@ function routerModel() {
   const ready = D.models.filter((m) => m.ready);
   return ready.find((m) => m.id === "gemma") || ready[0] || null;
 }
+// "I use pfSense", "my NAS is backup-nas": telling, not asking ("I need…", "I want…", "help me…" are requests)
+const isStatement = (t) => /^(i|i'm|im|i've|my|we|our)\b/i.test(String(t).trim()) && !/\?\s*$/.test(t) && !/\b(need|want|wanna|would like|how|help|can you|could you|please|trying to|looking for|should|wondering|explain|show|tell me|make|write|fix|build)\b/i.test(t);
 const looksLikeCode = (q) => /```|\b(def|function|const|let|var|class|import|return|async|await)\b.*[({=;:]|traceback|exception:|stack trace|\bnpm\b|\bpip install|\.(py|js|ts|tsx|jsx|go|rs|java|cpp|c|sh|sql)\b|\b(write|fix|debug|refactor) (a |the |this |my )?(python|javascript|typescript|bash|sql|rust|go|java|c\+\+)?\s*(code|function|script|class|bug|test)/i.test(q);
 function guessTask(q) {
   const s = q.toLowerCase(), has = (re) => re.test(s);
@@ -1377,7 +1379,7 @@ async function dispatch(raw) {
   let sources = [], webText = "";
   const mode = webMode();
   // On AUTO, questions about your own lab or statements about yourself ("I use pfSense") never need a web search
-  const aboutMe = (D.homelab?.configured && window.labAsk?.(text) && /\b(my|our|home ?lab|the lab|anything|everything|something|machines?|servers?|containers?|alerts?)\b/i.test(text)) || (/^(i|i'm|im|i've|my|we|our)\b/i.test(text.trim()) && !/\?\s*$/.test(text));
+  const aboutMe = (D.homelab?.configured && window.labAsk?.(text) && /\b(my|our|home ?lab|the lab|anything|everything|something|machines?|servers?|containers?|alerts?)\b/i.test(text)) || isStatement(text);
   const wantWeb = forceWeb || mode === "on" || (mode === "auto" && !aboutMe && (routed ? routed.web : webGuess(text)));
   if (wantWeb && !D.web?.enabled) {
     if (forceWeb) conLine(`web search isn't set up yet · run <b>bash setup-web-search.sh</b> in the nexus-hq folder`, "sys dim");
@@ -1429,7 +1431,9 @@ async function dispatch(raw) {
     const hasImgs = images.length || ctx.some((m) => m.images);
     const vm = hasImgs ? visionFor(agent) : null;
     if (hasImgs && vm === false) { conLine(`<span class="err">None of your models can see images. Pull a vision model such as gemma4:12b.</span>`, "sys"); return finish(); }
-    const r = await work(agent, systemFor(agent, task), [...ctx, { role: "user", content: webText ? `${webText}Question: ${text}` : text, ...(images.length ? { images } : {}) }], signal, sources, vm ? { model: vm } : {});
+    // a statement about yourself ("I use pfSense") gets an acknowledgement, not a tutorial
+    const said = isStatement(text) ? `${text}\n\n(This is the user telling you something about themselves, not a question. Acknowledge it briefly, connect it to what you know about their setup if relevant, and ask at most one short follow-up.)` : text;
+    const r = await work(agent, systemFor(agent, task), [...ctx, { role: "user", content: webText ? `${webText}Question: ${said}` : said, ...(images.length ? { images } : {}) }], signal, sources, vm ? { model: vm } : {});
     answer = r.error ? "" : r.text;
   }
   if (answer) {
