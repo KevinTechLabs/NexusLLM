@@ -427,7 +427,7 @@ const tools = /^(off|0|false|no)$/i.test(env("AGENT_TOOLS", "on")) ? null
 async function warm(modelId) {
   const m = MODELS.find((x) => x.id === modelId && x.provider === "ollama");
   if (!m) return false;
-  try { const r = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: m.model, keep_alive: KEEP_ALIVE }), signal: AbortSignal.timeout(180000) }); return r.ok; } catch { return false; }
+  try { const r = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: m.model, keep_alive: KEEP_ALIVE, options: { num_ctx: NUM_CTX } }), signal: AbortSignal.timeout(180000) }); return r.ok; } catch { return false; }
 }
 setTimeout(() => warm("gemma"), 8e3).unref();
 
