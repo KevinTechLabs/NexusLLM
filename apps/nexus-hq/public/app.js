@@ -1176,6 +1176,10 @@ function routerModel() {
 }
 // "I use pfSense", "my NAS is backup-nas": telling, not asking ("I need…", "I want…", "help me…" are requests)
 const isStatement = (t) => /^(i|i'm|im|i've|my|we|our)\b/i.test(String(t).trim()) && !/\?\s*$/.test(t) && !/\b(need|want|wanna|would like|how|help|can you|could you|please|trying to|looking for|should|wondering|explain|show|tell me|make|write|fix|build)\b/i.test(t);
+// A status check on your own lab: lab words + "my/the lab/anything…" + a status word, and not a decision or a how-to
+const labQuick = (q) => !!D.homelab?.configured && !!window.labAsk?.(q) && /\b(my|our|home ?lab|the lab|anything|everything|something|machines?|servers?|containers?|alerts?)\b/i.test(q)
+  && /\b(hot|temps?|temperature|down|offline|online|up|running|alerts?|load|usage|using|power|watts?|kwh|cost|bill|status|health|healthy|ok|okay|full|space|uptime|blocked|attacks?)\b/i.test(q)
+  && !/\b(should|how (do|can|would|to)|why|setup|set up|install|configure|plan|compare|vs|better|recommend)\b/i.test(q);
 const looksLikeCode = (q) => /```|\b(def|function|const|let|var|class|import|return|async|await)\b.*[({=;:]|traceback|exception:|stack trace|\bnpm\b|\bpip install|\.(py|js|ts|tsx|jsx|go|rs|java|cpp|c|sh|sql)\b|\b(write|fix|debug|refactor) (a |the |this |my )?(python|javascript|typescript|bash|sql|rust|go|java|c\+\+)?\s*(code|function|script|class|bug|test)/i.test(q);
 function guessTask(q) {
   const s = q.toLowerCase(), has = (re) => re.test(s);
@@ -1207,6 +1211,8 @@ async function routeTask(q, signal) {
   // Code is obvious from the words, and skipping the router here avoids swapping Gemma and Qwen in
   // and out of GPU memory, which is the slowest part of a coding answer
   if (looksLikeCode(q) && !webGuess(q)) return { id: guessTask(q), how: "quick match", web: false, query: q };
+  // Quick lab checks ("how hot is my GPU?", "is anything down?", "any new alerts?") go straight to the lab
+  if (labQuick(q) && idx.task["ask-anything"]) return { id: "ask-anything", how: "quick match", web: false, query: q };
   const rm = routerModel();
   if (!rm) return { id: guessTask(q), how: "keywords (no model online)", web: webGuess(q), query: q };
   const list = D.tasks.filter((t) => !t.manual).map((t) => `${t.id} — ${t.name} [${idx.dept[t.dept]?.name}]`).join("\n");
@@ -1392,7 +1398,7 @@ async function dispatch(raw) {
   // Notes from your Obsidian vault that match the question (Private/ is never searched)
   // (coding questions only get notes when they're about your own stuff; agents can also search notes themselves)
   const codeTask = (task || agent)?.dept === "code";
-  if (vaultOn() && !forceWeb && (!codeTask || /\b(my|our|mine)\b/i.test(text) || (ghRepoList || []).some((r) => text.toLowerCase().includes(r.name.toLowerCase())))) {
+  if (vaultOn() && !forceWeb && !labQuick(text) && (!codeTask || /\b(my|our|mine)\b/i.test(text) || (ghRepoList || []).some((r) => text.toLowerCase().includes(r.name.toLowerCase())))) {
     const notes = await vaultContext(text);
     if (notes.text) webText = notes.text + webText;
   }
