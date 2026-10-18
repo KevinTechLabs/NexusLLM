@@ -9,8 +9,16 @@
 // asks you to confirm first.
 
 function makeHomelab({ nexuslabUrl, nexuslabUser = "admin", nexuslabPassword = "", sentinelUrl, log = () => {} }) {
-  const nl = nexuslabUrl ? nexuslabUrl.replace(/\/$/, "") : null;
-  const sn = sentinelUrl ? sentinelUrl.replace(/\/$/, "") : null;
+  // Only the scheme, host and port matter (an address copied from the browser may end in /login or /#/...)
+  const base = (u, who) => { if (!u) return null; try { const x = new URL(/^https?:\/\//i.test(u) ? u : `http://${u}`); return x.origin; } catch { log(`${who} address isn't valid: ${u}`); return null; } };
+  const nl = base(nexuslabUrl, "NEXUSLAB_URL");
+  const sn = base(sentinelUrl, "SENTINEL_URL");
+  // Read JSON, with a clear message when the address points at a web page instead of the API
+  async function asJson(r, who, envName) {
+    const t = await r.text();
+    try { return JSON.parse(t); }
+    catch { throw new Error(`${who} sent back a web page instead of data. Check ${envName} in .env is just the address and port you open it at, like http://<server>:<port>`); }
+  }
   let cookie = "", cache = { nl: null, sn: null, at: 0 };
   const errors = { nexuslab: null, sentinel: null };
 
@@ -30,11 +38,12 @@ function makeHomelab({ nexuslabUrl, nexuslabUser = "admin", nexuslabPassword = "
   async function refresh(force) {
     if (!force && Date.now() - cache.at < 10000) return cache;
     const [a, b] = await Promise.allSettled([
-      nl ? nlFetch("/api/state").then((r) => r.json()) : Promise.resolve(null),
-      sn ? fetch(sn + "/api/state", { signal: AbortSignal.timeout(8000) }).then((r) => { if (!r.ok) throw new Error(`Sentinel ${r.status}`); return r.json(); }) : Promise.resolve(null),
+      nl ? nlFetch("/api/state").then((r) => asJson(r, "NexusLab", "NEXUSLAB_URL")) : Promise.resolve(null),
+      sn ? fetch(sn + "/api/state", { signal: AbortSignal.timeout(8000) }).then((r) => { if (!r.ok) throw new Error(`Sentinel ${r.status} at ${sn}/api/state. Check SENTINEL_URL in .env`); return asJson(r, "Sentinel", "SENTINEL_URL"); }) : Promise.resolve(null),
     ]);
-    errors.nexuslab = a.status === "rejected" ? a.reason.message : null;
-    errors.sentinel = b.status === "rejected" ? b.reason.message : null;
+    const why = (e, who, url) => (/fetch failed|ECONNREFUSED|EHOSTUNREACH|ENOTFOUND|aborted|timeout/i.test(String(e?.message) + String(e?.cause?.code)) ? `Can't reach ${who} at ${url} (is it running, and is the address in .env right?)` : e.message);
+    errors.nexuslab = a.status === "rejected" ? why(a.reason, "NexusLab", nl) : null;
+    errors.sentinel = b.status === "rejected" ? why(b.reason, "Sentinel", sn) : null;
     cache = { nl: a.status === "fulfilled" ? a.value : cache.nl, sn: b.status === "fulfilled" ? b.value : cache.sn, at: Date.now() };
     return cache;
   }

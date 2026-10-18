@@ -63,7 +63,7 @@ async function suggestMemory(userText, modelId) {
     const known = (D.memory || []).map((m) => m.text);
     const r = await streamChat(mid, "You pick out lasting facts about a user so their assistant can remember them. Reply with a JSON array only.",
       [{ role: "user", content: `Things already remembered:\n${known.map((k) => `- ${k}`).join("\n") || "(nothing yet)"}\n\nThe user just wrote:\n"""${t.slice(0, 1500)}"""\n\nList up to 2 NEW facts worth remembering for future chats: their setup and devices, names of their machines/projects/people, preferences, goals, or plans. Write each one short, in their own voice, the way they'd say "remember that ..." (e.g. "My NAS is called backup-nas", "I prefer answers with tables").\nDon't include: questions they asked, one-off tasks, things that will be out of date in a few days, passwords or keys, or anything already remembered.\nReply [] if there's nothing. Reply with the JSON array only.` }],
-      null, () => {}, { quick: true, maxTokens: 160 });
+      null, () => {}, { quick: true, maxTokens: 300 });
     if (r.error) return;
     let list = [];
     try { list = JSON.parse((r.text.replace(/<think>[\s\S]*?<\/think>/g, "").match(/\[[\s\S]*\]/) || ["[]"])[0]); } catch { return; }

@@ -123,7 +123,7 @@ async function ollamaCaps(model) {
     const r = await fetch(`${OLLAMA_URL}/api/show`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }), signal: AbortSignal.timeout(3000) });
     if (r.ok) {
       const j = await r.json(), caps = j.capabilities || [];
-      v = { vision: caps.includes("vision") || !!j.projector_info || /clip|mllama|vision/i.test(JSON.stringify(j.details || {})), tools: caps.includes("tools") || /\.Tools|tool_call/i.test(String(j.template || "")) };
+      v = { vision: caps.includes("vision") || !!j.projector_info || /clip|mllama|vision/i.test(JSON.stringify(j.details || {})), tools: caps.includes("tools") || /\.Tools|tool_call/i.test(String(j.template || "")), thinking: caps.includes("thinking") };
     }
   } catch {}
   capsCache.set(model, { v, at: Date.now() });
@@ -189,6 +189,9 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
   const msgs = system ? [{ role: "system", content: system }, ...withImages("ollama", messages)] : withImages("ollama", messages);
   const body = { model: m.model, stream: true, messages: msgs, keep_alive: KEEP_ALIVE, options: { num_ctx: NUM_CTX, ...(opts.num_predict ? { num_predict: opts.num_predict } : {}) } };
   if (m.think !== undefined) body.think = m.think;
+  // Quick jobs (routing, memory suggestions) skip thinking: on a thinking model the short answer
+  // budget would otherwise be spent thinking and come back empty
+  if (opts.quick && (await ollamaCaps(m.model)).thinking) body.think = false;
   if (names.length) body.tools = tools.defs(names);
   const MAX_ROUNDS = 6;
   let input = 0, output = 0, ranCode = false, fixes = 0;
@@ -202,13 +205,16 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
       throw new Error(`Can't reach Ollama at ${OLLAMA_URL}. Is it running? (ollama serve)`);
     }
     if (!res.ok) throw new Error(`Ollama ${res.status}: ${await failText(res)}`);
-    const calls = []; let said = "";
+    const calls = []; let said = "", thought = "";
     for await (const ev of ndjson(res.body)) {
       if (ev.error) throw new Error(`Ollama: ${ev.error}`);
+      if (ev.message?.thinking) thought += ev.message.thinking;
       if (ev.message?.content) { said += ev.message.content; yield { type: "delta", text: ev.message.content }; }
       if (ev.message?.tool_calls?.length) calls.push(...ev.message.tool_calls);
       if (ev.done) { input += ev.prompt_eval_count || 0; output += ev.eval_count || 0; }
     }
+    // a quick job that only "thought" (ran out of room before answering): use what it thought
+    if (opts.quick && !said.trim() && thought.trim()) { said = thought; yield { type: "delta", text: thought }; }
     if (!calls.length || !body.tools) {
       // Coding answers get checked even if the model didn't test its own code: run the code
       // block in the sandbox, and if it fails, hand the error back and have it fix the answer.
@@ -922,7 +928,7 @@ async function handle(req, res) {
     try {
       let toolNames = [];
       if (tools && Array.isArray(body.tools) && body.tools.length) { const have = await tools.available(); toolNames = body.tools.filter((n) => have.includes(n)); }
-      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames, verify: !!body.verify && toolNames.includes("run_code") };
+      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames, quick: !!body.quick, verify: !!body.verify && toolNames.includes("run_code") };
       for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal, popts)) {
         if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; if (job) job.text += ev.text; if (!clientGone) send(ev); }
         else if (ev.type === "usage") {

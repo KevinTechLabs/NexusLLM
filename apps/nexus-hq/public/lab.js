@@ -17,10 +17,11 @@ async function labContext() {
 
 function labChip(h) {
   if (!h?.configured) return "";
-  const nl = h.machines > 0, bad = (h.offline?.length || 0) > 0 || h.critical > 0, warn = h.high > 0;
+  const errs = Object.values(h.errors || {}).filter(Boolean);
+  const nl = h.machines > 0, bad = (h.offline?.length || 0) > 0 || h.critical > 0 || errs.length > 0, warn = h.high > 0;
   const parts = [nl ? `${h.up}/${h.machines} up` : null, h.alerts != null ? `${h.alerts} alert${h.alerts === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
-  const tip = bad ? `${h.offline?.length ? `Offline: ${h.offline.join(", ")}. ` : ""}${h.critical ? `${h.critical} critical alert(s).` : ""} Tap for details.` : "Your lab. Tap for a quick status, or just ask \"is anything down?\"";
-  return `<button class="mchip lab ${bad ? "off" : ""}" data-lab title="${esc(tip)}"><span class="d" style="${warn && !bad ? "background:#f5b84c" : ""}"></span>Lab <span class="m">${esc(parts || "connecting…")}</span></button>`;
+  const tip = errs.length ? `${errs.join(" · ")} Tap for details.` : bad ? `${h.offline?.length ? `Offline: ${h.offline.join(", ")}. ` : ""}${h.critical ? `${h.critical} critical alert(s).` : ""} Tap for details.` : "Your lab. Tap for a quick status, or just ask \"is anything down?\"";
+  return `<button class="mchip lab ${bad ? "off" : ""}" data-lab title="${esc(tip)}"><span class="d" style="${warn && !bad ? "background:#f5b84c" : ""}"></span>Lab <span class="m">${esc(errs.length && !nl ? "can't connect" : parts || "connecting…")}</span></button>`;
 }
 
 // "restart pihole", "stop the jellyfin container", "ack alert A-1043", "/lab"

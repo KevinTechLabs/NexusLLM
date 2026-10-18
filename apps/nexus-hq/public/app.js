@@ -623,7 +623,7 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
   const stop = () => rid && fetch(`/api/chat/cancel/${rid}`, { method: "POST", headers: headers(), keepalive: true }).catch(() => {});
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools, verify: !!opts.verify } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools, verify: !!opts.verify } : {}), ...(opts.quick ? { quick: true } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
     if (!r.ok) throw new Error(r.status === 401 ? "Password required — reload the page." : `Server error ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -1216,7 +1216,7 @@ async function routeTask(q, signal) {
     [{ role: "user", content: `Tasks:\n${list}\n${prev}\nRequest: """${q.slice(0, 2000)}"""\n\nToday's date: ${todayStr()}. Your own knowledge stops around 2024.
 Reply exactly like: {"task": "<task id>", "web": true, "query": "<short search query>"}
 Set "web" to true when a good answer depends on facts that change or that you may not know: prices, product specs or releases, news, recent events, software versions, sports, weather, anything after 2024, or when the user asks you to look something up. Set it to false for writing, explaining stable concepts, math, advice, or coding help on code the user provides.
-"query" is a concise web search query that includes any context needed from the previous request; use "" when web is false.` }], signal, () => {}, { quick: true, maxTokens: 80 });
+"query" is a concise web search query that includes any context needed from the previous request; use "" when web is false.` }], signal, () => {}, { quick: true, maxTokens: 200 });
   if (r.error) return { id: session.lastTask || guessTask(q), how: `fallback (router error: ${r.error})`, web: webGuess(q), query: q };
   const raw = r.text.replace(/<think>[\s\S]*?<\/think>/g, "");
   let j = null;
