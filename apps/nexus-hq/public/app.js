@@ -623,7 +623,7 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
   const stop = () => rid && fetch(`/api/chat/cancel/${rid}`, { method: "POST", headers: headers(), keepalive: true }).catch(() => {});
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools, verify: !!opts.verify } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
     if (!r.ok) throw new Error(r.status === 401 ? "Password required — reload the page." : `Server error ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -643,6 +643,7 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
         else if (ev.type === "cost") { out.stats.usd = ev.usd; updateSpend(ev); }
         else if (ev.type === "error") out.error = ev.message;
         else if (ev.type === "tool") opts.onTool?.(ev);
+        else if (ev.type === "reset") { out.text = ""; onDelta(""); } // the answer is being rewritten with fixed code
         else if (ev.type === "toolResult") { if (ev.sources?.length) (out.sources ||= []).push(...ev.sources); opts.onToolResult?.(ev); }
       }
     }
@@ -1051,7 +1052,7 @@ async function work(agent, system, messages, signal, sources, opts = {}) {
   loadingNotice(mid);
   const ob = outBlock(agent, sources);
   const tl = window.toolLines?.() || {};
-  const r = await streamChat(mid, system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim"), tools: window.toolsFor?.(agent, mid) || [], onTool: tl.start, onToolResult: tl.end });
+  const r = await streamChat(mid, system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim"), tools: window.toolsFor?.(agent, mid) || [], verify: agent.dept === "code", onTool: tl.start, onToolResult: tl.end });
   // sources found by the agent's own web searches join the ones searched up front
   const all = [...(sources || [])];
   for (const x of r.sources || []) if (!all.some((y) => y.url === x.url)) all.push(x);
@@ -1380,7 +1381,9 @@ async function dispatch(raw) {
   }
 
   // Notes from your Obsidian vault that match the question (Private/ is never searched)
-  if (vaultOn() && !forceWeb) {
+  // (coding questions only get notes when they're about your own stuff; agents can also search notes themselves)
+  const codeTask = (task || agent)?.dept === "code";
+  if (vaultOn() && !forceWeb && (!codeTask || /\b(my|our|mine)\b/i.test(text) || (ghRepoList || []).some((r) => text.toLowerCase().includes(r.name.toLowerCase())))) {
     const notes = await vaultContext(text);
     if (notes.text) webText = notes.text + webText;
   }

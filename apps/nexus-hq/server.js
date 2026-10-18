@@ -191,7 +191,7 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
   if (m.think !== undefined) body.think = m.think;
   if (names.length) body.tools = tools.defs(names);
   const MAX_ROUNDS = 6;
-  let input = 0, output = 0;
+  let input = 0, output = 0, ranCode = false, fixes = 0;
   for (let round = 0; ; round++) {
     if (round === MAX_ROUNDS) delete body.tools; // last round: answer with what it has
     let res;
@@ -209,7 +209,22 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
       if (ev.message?.tool_calls?.length) calls.push(...ev.message.tool_calls);
       if (ev.done) { input += ev.prompt_eval_count || 0; output += ev.eval_count || 0; }
     }
-    if (!calls.length || !body.tools) break;
+    if (!calls.length || !body.tools) {
+      // Coding answers get checked even if the model didn't test its own code: run the code
+      // block in the sandbox, and if it fails, hand the error back and have it fix the answer.
+      if (!opts.verify || ranCode || fixes > 2 || !sandbox?.state.enabled) break;
+      const v = await checkAnswerCode(said);
+      if (!v) break;
+      yield { type: "tool", name: "run_code", label: `testing the ${v.language} code from this answer` };
+      yield { type: "toolResult", name: "run_code", summary: v.summary, ok: v.ok, run: v.run };
+      if (v.ok || v.untestable || fixes === 2) break;
+      fixes++;
+      body.messages.push({ role: "assistant", content: said });
+      body.messages.push({ role: "user", content: `I ran the ${v.language} code from your answer in a sandbox and it failed:\n\n${(v.run.stderr || v.run.stdout).slice(-2500)}\n\nFind the bug, fix it, and write your whole answer again with the corrected code. Don't mention this message or apologize; just give the corrected answer.` });
+      yield { type: "reset" };
+      continue;
+    }
+    if (calls.some((c) => c.function?.name === "run_code")) ranCode = true;
     body.messages.push({ role: "assistant", content: said, tool_calls: calls });
     if (said.trim()) yield { type: "delta", text: "\n\n" };
     for (const c of calls.slice(0, 4)) {
@@ -221,6 +236,24 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
     }
   }
   yield { type: "usage", input, output };
+}
+
+// Run the main code block of an answer in the sandbox. Returns null when there's nothing to test.
+async function checkAnswerCode(text) {
+  const blocks = [...String(text).matchAll(/```(python3?|py|javascript|js|node)[^\n]*\n([\s\S]*?)```/gi)].map((b) => ({ language: /^p/i.test(b[1]) ? "python" : "javascript", code: b[2] }));
+  if (!blocks.length) return null;
+  const b = blocks.sort((x, y) => y.code.length - x.code.length)[0];
+  if (b.code.trim().split("\n").length < 3) return null;
+  // things a sandbox with no input, files, internet or extra packages can't fairly test
+  if (/\binput\s*\(|sys\.stdin|process\.stdin|readline|argv|open\s*\(|requests\.|urllib|http\.|fetch\s*\(|socket|subprocess|os\.system|tkinter|pygame|flask|fastapi|django|express\(|app\.listen|serve_forever|while\s+True\s*:|setInterval|require\(['"](?!(fs|path|os|util|assert|crypto)['"])/i.test(b.code)) return null;
+  const r = await sandbox.run(b.language, b.code, { timeoutS: 10 });
+  if (r.error) return null;
+  const err = r.stderr || "";
+  const run = { language: b.language, code: b.code.slice(0, 8000), stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode };
+  if (r.exitCode === 0) return { ok: true, language: b.language, summary: "✓ it runs", run };
+  if (r.exitCode === 137 || /ModuleNotFoundError|No module named|Cannot find module|EOFError|FileNotFoundError|ENOENT|PermissionError|EACCES|ConnectionError|getaddrinfo|ENOTFOUND|Network is unreachable/.test(err))
+    return { ok: true, untestable: true, language: b.language, summary: "couldn't be tested here (needs packages, files, input or internet)", run };
+  return { ok: false, language: b.language, summary: `✕ failed (exit ${r.exitCode}), fixing it`, run };
 }
 
 // OpenRouter: one key for both cloud models (OpenAI-compatible chat completions)
@@ -889,7 +922,7 @@ async function handle(req, res) {
     try {
       let toolNames = [];
       if (tools && Array.isArray(body.tools) && body.tools.length) { const have = await tools.available(); toolNames = body.tools.filter((n) => have.includes(n)); }
-      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames };
+      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames, verify: !!body.verify && toolNames.includes("run_code") };
       for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal, popts)) {
         if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; if (job) job.text += ev.text; if (!clientGone) send(ev); }
         else if (ev.type === "usage") {
@@ -897,6 +930,7 @@ async function handle(req, res) {
           if (m.budgeted) { const usd = costOf(m, ev); addSpend(usd); send({ type: "cost", usd, ...spendInfo() }); }
         }
         else if (ev.type === "tool" || ev.type === "toolResult") { if (job) (job.events ||= []).push(ev); if (!clientGone) send(ev); }
+        else if (ev.type === "reset") { if (job) job.text = ""; if (!clientGone) send(ev); }
       }
       if (!clientGone) send({ type: "done", ms: Date.now() - t0, ttft, model: m.id });
       if (job) { job.done = true; job.model = m.id; job.ms = Date.now() - t0; }

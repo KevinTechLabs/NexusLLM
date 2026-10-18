@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-18
+
+- Nexus HQ: every coding answer's code is run in the sandbox automatically and fixed if it fails; coding questions no longer pull in unrelated vault notes; stricter vault matching.
+- LLM stack: Ollama only reachable from the PC itself, flash attention and q8_0 KV cache.
+
 ## 2026-10-15
 
 - Nexus HQ: local agents use tools on their own (web search, notes, lab status, calculator, code sandbox), the Builder tests and fixes its code in a locked Docker sandbox before answering, and memory suggestions offer to remember lasting facts you mention (one tap, never automatic).
