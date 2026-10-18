@@ -1371,7 +1371,9 @@ async function dispatch(raw) {
   // ----- web search: forced with /web, always when WEB ON, router's call when WEB AUTO -----
   let sources = [], webText = "";
   const mode = webMode();
-  const wantWeb = forceWeb || mode === "on" || (mode === "auto" && (routed ? routed.web : webGuess(text)));
+  // On AUTO, questions about your own lab or statements about yourself ("I use pfSense") never need a web search
+  const aboutMe = (D.homelab?.configured && window.labAsk?.(text) && /\b(my|our|home ?lab|the lab|anything|everything|something|machines?|servers?|containers?|alerts?)\b/i.test(text)) || (/^(i|i'm|im|i've|my|we|our)\b/i.test(text.trim()) && !/\?\s*$/.test(text));
+  const wantWeb = forceWeb || mode === "on" || (mode === "auto" && !aboutMe && (routed ? routed.web : webGuess(text)));
   if (wantWeb && !D.web?.enabled) {
     if (forceWeb) conLine(`web search isn't set up yet · run <b>bash setup-web-search.sh</b> in the nexus-hq folder`, "sys dim");
   } else if (wantWeb) {

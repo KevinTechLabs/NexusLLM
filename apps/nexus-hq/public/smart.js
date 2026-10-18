@@ -55,7 +55,7 @@ const declined = () => { try { return JSON.parse(localStorage.getItem("hq.memno"
 async function suggestMemory(userText, modelId) {
   if (!prefOn("hq.automem") || memBusy) return;
   const t = String(userText || "").trim();
-  if (t.length < 15 || t.length > 2000 || /^[\/@]/.test(t) || !/\b(i (have|had|got|use|used|run|own|bought|built|made|work|live|prefer|like|love|hate|want|need|plan|switched|moved|set up|installed)|i've (got|been|set|switched|moved|built)|i'm (a|an|using|running|building|planning|working|learning|studying|moving|getting)|i am (a|an|using|running|building|planning|working|learning)|my \w+( \w+)? (is|are|was|runs|has|uses)|we (have|use|run)|our \w+ (is|are)|call(ed)? (it|him|her|them)|my name is)\b/i.test(t) || looksLikeCode(t)) return;
+  if (t.length < 8 || t.length > 2000 || /^[\/@]/.test(t) || !/\b(i (have|had|got|use|used|run|own|bought|built|made|work|live|prefer|like|love|hate|want|need|plan|switched|moved|set up|installed)|i've (got|been|set|switched|moved|built)|i'm (a|an|using|running|building|planning|working|learning|studying|moving|getting)|i am (a|an|using|running|building|planning|working|learning)|my \w+( \w+)? (is|are|was|runs|has|uses)|we (have|use|run)|our \w+ (is|are)|call(ed)? (it|him|her|them)|my name is)\b/i.test(t) || looksLikeCode(t)) return;
   let mid = idx.model[modelId]?.provider === "ollama" && idx.model[modelId]?.ready ? modelId : routerModel()?.id;
   if (!mid || idx.model[mid]?.provider !== "ollama") return; // only ever local: this runs after every chat
   memBusy = true;

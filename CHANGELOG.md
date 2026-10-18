@@ -2,6 +2,7 @@
 
 ## 2026-10-18
 
+- Nexus HQ: no web search on AUTO for questions about your own lab or statements about yourself; memory suggestions for short statements like "I use pfSense".
 - Nexus HQ: routing and memory suggestions work on thinking models (no more "router error: Empty response"), lab addresses copied from the browser (ending in /login etc.) work, and the Lab chip shows connection problems plainly.
 - Nexus HQ: every coding answer's code is run in the sandbox automatically and fixed if it fails; coding questions no longer pull in unrelated vault notes; stricter vault matching.
 - LLM stack: Ollama only reachable from the PC itself, flash attention and q8_0 KV cache.
