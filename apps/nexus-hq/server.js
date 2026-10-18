@@ -191,7 +191,12 @@ async function* streamOllama(m, messages, system, signal, opts = {}) {
   if (m.think !== undefined) body.think = m.think;
   // Quick jobs (routing, memory suggestions) skip thinking: on a thinking model the short answer
   // budget would otherwise be spent thinking and come back empty
-  if (opts.quick && (await ollamaCaps(m.model)).thinking) body.think = false;
+  // Thinking models (Gemma 4) think before every answer, which can add 20-30 s to "how hot is my GPU?".
+  // So they only think for hard questions (decisions, plans, /think ...); OLLAMA_THINK=on|off overrides.
+  if ((await ollamaCaps(m.model)).thinking && m.think === undefined) {
+    const pref = env("OLLAMA_THINK", "auto").toLowerCase();
+    body.think = opts.quick ? false : pref === "on" ? true : pref === "off" ? false : !!opts.deep;
+  }
   if (names.length) body.tools = tools.defs(names);
   const MAX_ROUNDS = 6;
   let input = 0, output = 0, ranCode = false, fixes = 0;
@@ -928,7 +933,7 @@ async function handle(req, res) {
     try {
       let toolNames = [];
       if (tools && Array.isArray(body.tools) && body.tools.length) { const have = await tools.available(); toolNames = body.tools.filter((n) => have.includes(n)); }
-      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames, quick: !!body.quick, verify: !!body.verify && toolNames.includes("run_code") };
+      const popts = { num_predict: Math.min(Number(body.maxTokens) || 0, 2048) || undefined, tools: toolNames, quick: !!body.quick, deep: !!body.deep, verify: !!body.verify && toolNames.includes("run_code") };
       for await (const ev of PROVIDERS[route(m).via || m.provider](m, body.messages || [], body.system || "", ac.signal, popts)) {
         if (ev.type === "delta") { if (ttft === null) ttft = Date.now() - t0; if (job) job.text += ev.text; if (!clientGone) send(ev); }
         else if (ev.type === "usage") {

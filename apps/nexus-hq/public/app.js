@@ -623,7 +623,7 @@ async function streamChat(model, system, messages, signal, onDelta, opts = {}) {
   const stop = () => rid && fetch(`/api/chat/cancel/${rid}`, { method: "POST", headers: headers(), keepalive: true }).catch(() => {});
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools, verify: !!opts.verify } : {}), ...(opts.quick ? { quick: true } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: headers(), signal, body: JSON.stringify({ model, system, messages, ...(opts.fallback && opts.fallback !== model ? { fallback: opts.fallback } : {}), ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}), ...(opts.tools?.length ? { tools: opts.tools, verify: !!opts.verify } : {}), ...(opts.quick ? { quick: true } : {}), ...(opts.deep ? { deep: true } : {}), ...(rid ? { rid, cid: clientId, notify: opts.notify || session?.title || "Nexus HQ" } : {}) }) });
     if (!r.ok) throw new Error(r.status === 401 ? "Password required — reload the page." : `Server error ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -1052,7 +1052,7 @@ async function work(agent, system, messages, signal, sources, opts = {}) {
   loadingNotice(mid);
   const ob = outBlock(agent, sources);
   const tl = window.toolLines?.() || {};
-  const r = await streamChat(mid, system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim"), tools: window.toolsFor?.(agent, mid) || [], verify: agent.dept === "code", onTool: tl.start, onToolResult: tl.end });
+  const r = await streamChat(mid, system, messages, signal, (t) => ob.update(t), { fallback: opts.model ? null : agent.fallback, onNote: (t) => conLine(esc(t), "sys dim"), tools: window.toolsFor?.(agent, mid) || [], verify: agent.dept === "code", deep: !!opts.deep || con.think, onTool: tl.start, onToolResult: tl.end });
   // sources found by the agent's own web searches join the ones searched up front
   const all = [...(sources || [])];
   for (const x of r.sources || []) if (!all.some((y) => y.url === x.url)) all.push(x);
@@ -1263,6 +1263,7 @@ Notes:  <b>save this to my notes</b> · <b>make a note about</b> ... · open the
 <b>/new</b>              start a new chat (the current one stays saved)
 <b>/chats</b>            open saved chats
 <b>/rename</b> new name     rename this chat (or tap its title, or ✎ in saved chats)
+<b>/think</b> question     let Gemma think it through first (slower, more careful)
 <b>/tools</b> on|off       agents search, check your lab and test code on their own
 <b>/automemory</b> on|off  offer to remember things you mention about yourself
 <b>/agents</b>           list agents and their models
@@ -1348,6 +1349,9 @@ async function dispatch(raw) {
 
   let task = null, agent = null, text = q, routed = null, forceWeb = false;
   if (/^\/web\s+/.test(q)) { forceWeb = true; text = q.replace(/^\/web\s+/, ""); }
+  // "/think question" (or a decision/planning task) lets Gemma think it through first: slower, more careful
+  con.think = false;
+  if (/^\/think\s+/.test(text)) { con.think = true; text = text.replace(/^\/think\s+/, ""); }
   const at = text.match(/^@([\w-]+)\s+([\s\S]+)/);
   if (at) {
     const alias = { opus: "advisor", claude: "advisor" }[at[1].toLowerCase()];
@@ -1362,6 +1366,7 @@ async function dispatch(raw) {
     const r = routed = await routeTask(text, signal);
     if (signal.aborted) return finish("stopped");
     task = idx.task[r.id];
+    if (["decide", "plan-feature"].includes(task?.id)) con.think = true; // weighing options and planning are worth the extra seconds
     const d = idx.dept[task.dept];
     conLine(`routed → <span style="color:${d.color}">${esc(d.name.toUpperCase())}</span> / <b>${esc(task.name)}</b> <span class="dim">(by ${esc(r.how)})</span>`, "sys");
   }
